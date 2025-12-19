@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Save, Library, Globe, Upload, BookOpen, X, Settings, User, Sparkles, Play, ChevronRight, Heart, Brain, Home, Users, Zap } from 'lucide-react';
 
+// Import author styles from iOS app (25+ writing styles)
+import { buildAuthorStylePrompt, getRandomAuthorForGenre } from './data/authorStyles.js';
+
 // ============================================
 // SECTION 1: CHARACTER GENERATION DATA
 // Ported from seed_generator_v2.py
@@ -1249,6 +1252,65 @@ class StoryBible {
     this.choiceHistory = [];
     this.storyId = Date.now().toString();
     this.protagonistProfile = null; // Emergent character integration
+
+    // NEW: Author style and story outline (ported from iOS app)
+    this.authorStyle = null; // { name, description } from AuthorStyles.json
+    this.storyOutline = []; // Array of plot points for narrative guidance
+    this.genreFormula = []; // Genre-specific story beats
+  }
+
+  // Set the author style for this story
+  setAuthorStyle(author) {
+    this.authorStyle = author;
+  }
+
+  // Set the story outline (generated before chapter 1)
+  setStoryOutline(outline) {
+    this.storyOutline = outline;
+  }
+
+  // Set genre-specific formula
+  setGenreFormula(formula) {
+    this.genreFormula = formula;
+  }
+
+  // Get current plot point based on chapter number
+  getCurrentPlotPoint() {
+    if (this.storyOutline.length === 0) return null;
+    const index = Math.min(this.currentChapter - 1, this.storyOutline.length - 1);
+    return this.storyOutline[index] || null;
+  }
+
+  // Format the story outline for AI context
+  formatOutlineContext() {
+    if (this.storyOutline.length === 0) return '';
+
+    let context = '\n═══════════════════════════════════════════════════\n';
+    context += 'STORY OUTLINE (Use as narrative guide)\n';
+    context += '═══════════════════════════════════════════════════\n';
+
+    this.storyOutline.forEach((point, i) => {
+      const marker = i + 1 === this.currentChapter ? '→ ' : '  ';
+      const status = i + 1 < this.currentChapter ? '✓' : i + 1 === this.currentChapter ? '●' : '○';
+      context += `${marker}${status} ${i + 1}. ${point}\n`;
+    });
+
+    return context;
+  }
+
+  // Format author style for AI context
+  formatAuthorStyleContext() {
+    if (!this.authorStyle) return '';
+
+    let context = '\n═══════════════════════════════════════════════════\n';
+    context += 'WRITING STYLE GUIDANCE\n';
+    context += '═══════════════════════════════════════════════════\n';
+    context += `Author Inspiration: ${this.authorStyle.name}\n`;
+    if (this.authorStyle.description) {
+      context += `\n${this.authorStyle.description}\n`;
+    }
+
+    return context;
   }
 
   setProtagonist(characterProfile) {
@@ -1362,7 +1424,8 @@ PROTAGONIST PSYCHOLOGY (Use to inform behavior/reactions)
   buildContextInjection(chapterNumber) {
     const phase = this.calculatePhase(chapterNumber);
     const guidance = PhaseGuidance[phase];
-    
+    const currentPlotPoint = this.getCurrentPlotPoint();
+
     let context = `
 ═══════════════════════════════════════════════════════════════════════════════
 STORY BIBLE - CONTINUITY CONTEXT (CRITICAL: DO NOT IGNORE)
@@ -1376,7 +1439,8 @@ LOGLINE: ${this.logline}
 CURRENT POSITION: Chapter ${chapterNumber} of ${this.totalChapters}
 NARRATIVE PHASE: ${phase.toUpperCase().replace('_', ' ')}
 GUIDANCE: ${guidance}
-
+${currentPlotPoint ? `\nCURRENT PLOT POINT: ${currentPlotPoint}` : ''}
+${this.formatOutlineContext()}
 ───────────────────────────────────────────────────────────────────────────────
 STORY SO FAR
 ───────────────────────────────────────────────────────────────────────────────
@@ -1397,6 +1461,7 @@ PREVIOUS CHOICES
 ───────────────────────────────────────────────────────────────────────────────
 ${this.formatChoiceHistory()}
 ${this.formatProtagonistPsychology()}
+${this.formatAuthorStyleContext()}
 ═══════════════════════════════════════════════════════════════════════════════
 END STORY BIBLE
 ═══════════════════════════════════════════════════════════════════════════════`;
@@ -1488,36 +1553,193 @@ const AI_PROVIDERS = {
 // SECTION 7: GENRE DATA
 // ============================================
 
+// ============================================
+// EXPANDED GENRES (26+ from iOS app)
+// Each genre has specific story formulas and author style matching
+// ============================================
+
 const genres = {
   fantasy: {
     icon: '⚔️',
     name: 'Epic Fantasy',
-    prompt: 'Generate an epic fantasy story premise with magic, kingdoms, quests, or mythical creatures. Think Game of Thrones, Lord of the Rings, Name of the Wind.'
+    prompt: 'Generate an epic fantasy story premise with magic, kingdoms, quests, or mythical creatures. Think Game of Thrones, Lord of the Rings, Name of the Wind.',
+    formula: ['World-Building', 'Magic System Intro', 'Quest Setup', 'Journey Begins', 'First Challenge', 'Ally Found', 'Enemy Revealed', 'Artifact Discovery', 'Major Battle', 'Return Home'],
+    eras: ['1200s', '1400s', '1600s']
+  },
+  darkFantasy: {
+    icon: '🗡️',
+    name: 'Dark Fantasy',
+    prompt: 'Generate a dark fantasy premise with morally gray characters, gritty realism, and subverted tropes. Think Joe Abercrombie, Glen Cook, Mark Lawrence.',
+    formula: ['Grim Introduction', 'Moral Compromise', 'Alliance of Necessity', 'Betrayal', 'Darker Depths', 'Pyrrhic Victory', 'Cost Revealed', 'Final Reckoning'],
+    eras: ['1200s', '1400s', '1600s']
   },
   scifi: {
     icon: '🚀',
     name: 'Science Fiction',
-    prompt: 'Generate a science fiction story premise involving future technology, space, AI, dystopia, or scientific discovery. Think Blade Runner, Dune, Black Mirror.'
+    prompt: 'Generate a science fiction story premise involving future technology, space, AI, dystopia, or scientific discovery. Think Blade Runner, Dune, Black Mirror.',
+    formula: ['World State', 'Technology Introduction', 'Discovery/Problem', 'Investigation', 'Revelation', 'Stakes Escalate', 'Confrontation', 'Resolution'],
+    eras: ['2050s', '2100s', '2200s']
+  },
+  cyberpunk: {
+    icon: '🌃',
+    name: 'Cyberpunk',
+    prompt: 'Generate a cyberpunk story premise with neon-lit dystopia, hackers, corporations, and the intersection of humanity and technology. Think William Gibson, Blade Runner.',
+    formula: ['Neon Introduction', 'Job Offer', 'Corporate Conspiracy', 'Digital Infiltration', 'Betrayal', 'Chase', 'Revelation', 'System Crash'],
+    eras: ['2050s', '2100s']
+  },
+  retroScifi: {
+    icon: '📺',
+    name: '70s Sci-Fi',
+    prompt: 'Generate a thoughtful 1970s-style science fiction premise exploring social themes through alien encounters or future societies. Think Ursula K. Le Guin, Philip K. Dick.',
+    formula: ['Strange World', 'Cultural Encounter', 'Philosophical Question', 'Society Revealed', 'Identity Crisis', 'Truth Discovered', 'Choice Made'],
+    eras: ['2050s', '2100s']
   },
   mystery: {
     icon: '🔍',
-    name: 'Mystery Thriller',
-    prompt: 'Generate a mystery/thriller story premise with suspense, investigation, secrets, or danger. Think Gone Girl, The Girl with the Dragon Tattoo, Knives Out.'
+    name: 'Mystery',
+    prompt: 'Generate a mystery story premise with intricate puzzles, red herrings, and satisfying reveals. Think Agatha Christie, Tana French, Louise Penny.',
+    formula: ['Crime Scene', 'Detective Intro', 'First Clues', 'Suspect Pool', 'Red Herring', 'Key Discovery', 'Confrontation', 'Revelation'],
+    eras: ['1920s', '1950s', '2000s', '2010s']
+  },
+  thriller: {
+    icon: '⚡',
+    name: 'Thriller',
+    prompt: 'Generate a high-stakes thriller premise with tension, danger, and relentless pacing. Think Dan Brown, Lee Child, Gillian Flynn.',
+    formula: ['Inciting Incident', 'Stakes Established', 'Pursuit Begins', 'False Safety', 'Betrayal', 'All Seems Lost', 'Final Confrontation', 'Twist Resolution'],
+    eras: ['1980s', '1990s', '2000s', '2010s']
+  },
+  noir: {
+    icon: '🎩',
+    name: 'Noir Crime',
+    prompt: 'Generate a hardboiled noir crime premise with morally ambiguous characters, femme fatales, and corruption. Think Raymond Chandler, Dashiell Hammett.',
+    formula: ['Case Arrives', 'First Lead', 'Femme Fatale', 'Double Cross', 'Violence', 'Deeper Conspiracy', 'Confrontation', 'Bitter Resolution'],
+    eras: ['1940s', '1950s', '1970s']
   },
   romance: {
     icon: '💫',
     name: 'Romance',
-    prompt: 'Generate a romance story premise with compelling relationship dynamics, emotional tension, and heart. Think Nicholas Sparks, Beach Read, The Notebook.'
+    prompt: 'Generate a romance story premise with compelling relationship dynamics, emotional tension, and heart. Think Nicholas Sparks, Nora Roberts.',
+    formula: ['Meet Cute', 'Initial Attraction', 'First Obstacle', 'Growing Closer', 'Intimate Moment', 'Major Conflict', 'Separation', 'Grand Gesture', 'Happily Ever After'],
+    eras: ['1800s', '1920s', '1990s', '2010s']
+  },
+  romcom: {
+    icon: '😂',
+    name: 'Romantic Comedy',
+    prompt: 'Generate a light-hearted romantic comedy premise with witty banter, comedic mishaps, and heartwarming romance. Think Sophie Kinsella, rom-com movies.',
+    formula: ['Awkward Meeting', 'Misunderstanding', 'Forced Proximity', 'Comic Disaster', 'Feelings Emerge', 'Revelation', 'Grand Romantic Gesture'],
+    eras: ['1990s', '2000s', '2010s']
   },
   horror: {
     icon: '🌑',
     name: 'Horror',
-    prompt: 'Generate a horror story premise that unsettles and terrifies. Psychological horror, supernatural, or cosmic dread. Think Stephen King, Shirley Jackson, Jordan Peele.'
+    prompt: 'Generate a horror story premise that unsettles and terrifies. Psychological horror, supernatural, or cosmic dread. Think Stephen King, Shirley Jackson.',
+    formula: ['Normal Life', 'First Sign', 'Denial', 'Investigation', 'Horror Revealed', 'Failed Escape', 'Confrontation', 'Ambiguous End'],
+    eras: ['1970s', '1990s', '2010s']
+  },
+  gothic: {
+    icon: '🏚️',
+    name: 'Gothic',
+    prompt: 'Generate a gothic story premise with decaying mansions, family secrets, supernatural atmosphere, and romantic darkness. Think Daphne du Maurier, Anne Rice.',
+    formula: ['Arrival at Estate', 'Strange Encounters', 'Family Secret Hints', 'Romance Blooms', 'Horror Revealed', 'Past Uncovered', 'Confrontation', 'Escape or Doom'],
+    eras: ['1800s', '1900s', '1950s']
   },
   literary: {
     icon: '📖',
     name: 'Literary Fiction',
-    prompt: 'Generate a literary fiction premise exploring the human condition, relationships, identity, or social themes. Think Donna Tartt, Kazuo Ishiguro, Celeste Ng.'
+    prompt: 'Generate a literary fiction premise exploring the human condition, relationships, identity, or social themes. Think Donna Tartt, Kazuo Ishiguro, Celeste Ng.',
+    formula: ['Character Introduction', 'Daily Life', 'Disruption', 'Internal Conflict', 'Relationship Shift', 'Realization', 'Change or Acceptance'],
+    eras: ['1950s', '1980s', '2010s']
+  },
+  youngAdult: {
+    icon: '🌟',
+    name: 'Young Adult',
+    prompt: 'Generate a young adult story premise with coming-of-age themes, identity exploration, and relatable struggles. Think John Green, Suzanne Collins.',
+    formula: ['Ordinary World', 'Call to Change', 'Friendship Formed', 'First Love', 'Major Challenge', 'Identity Crisis', 'Standing Up', 'New Understanding'],
+    eras: ['1990s', '2000s', '2010s']
+  },
+  historical: {
+    icon: '🏛️',
+    name: 'Historical Fiction',
+    prompt: 'Generate a historical fiction premise that brings the past alive with rich period detail and human drama. Think Ken Follett, Hilary Mantel.',
+    formula: ['Era Established', 'Character Position', 'Historical Event', 'Personal Stakes', 'Conflict', 'Survival', 'History Changed'],
+    eras: ['1800s', '1900s', '1940s', '1960s']
+  },
+  dystopian: {
+    icon: '⚠️',
+    name: 'Dystopian',
+    prompt: 'Generate a dystopian premise with oppressive societies, rebellion, and the fight for freedom. Think 1984, Brave New World, The Handmaid\'s Tale.',
+    formula: ['Oppressive World', 'Protagonist\'s Role', 'Cracks Appear', 'Forbidden Knowledge', 'Rebellion Contact', 'Stakes Raised', 'Uprising', 'Victory or Defeat'],
+    eras: ['2050s', '2100s']
+  },
+  paranormal: {
+    icon: '👻',
+    name: 'Paranormal',
+    prompt: 'Generate a paranormal story premise with vampires, werewolves, ghosts, or supernatural romance. Think Anne Rice, Charlaine Harris.',
+    formula: ['Normal World', 'Supernatural Encounter', 'Powers/Transformation', 'Hidden World', 'Forbidden Connection', 'Threat Emerges', 'Final Battle'],
+    eras: ['1990s', '2000s', '2010s']
+  },
+  adventure: {
+    icon: '🗺️',
+    name: 'Adventure',
+    prompt: 'Generate an adventure story premise with exploration, treasure, danger, and exotic locations. Think Clive Cussler, Indiana Jones.',
+    formula: ['Call to Adventure', 'Team Assembly', 'First Obstacle', 'Discovery', 'Villain Pursuit', 'Race Against Time', 'Final Challenge', 'Treasure Secured'],
+    eras: ['1930s', '1980s', '2000s']
+  },
+  action: {
+    icon: '💥',
+    name: 'Action',
+    prompt: 'Generate an action story premise with high-octane sequences, skilled protagonists, and explosive conflicts. Think Tom Clancy, Lee Child.',
+    formula: ['Mission Brief', 'Infiltration', 'First Fight', 'Setback', 'Regroup', 'Final Assault', 'Boss Battle', 'Aftermath'],
+    eras: ['1980s', '1990s', '2000s', '2010s']
+  },
+  western: {
+    icon: '🤠',
+    name: 'Western',
+    prompt: 'Generate a western premise with frontier justice, outlaws, and the untamed American West. Think Louis L\'Amour, Cormac McCarthy.',
+    formula: ['Stranger Arrives', 'Town\'s Problem', 'Allies Made', 'Enemy Confronted', 'Escalation', 'Final Showdown', 'Ride Off'],
+    eras: ['1860s', '1880s', '1900s']
+  },
+  crime: {
+    icon: '🔫',
+    name: 'Crime',
+    prompt: 'Generate a crime story premise with investigations, criminals, and the gray areas of justice. Think Michael Connelly, Dennis Lehane.',
+    formula: ['Crime Committed', 'Investigation Begins', 'First Lead', 'Deeper Conspiracy', 'Personal Stakes', 'Confrontation', 'Justice (or Not)'],
+    eras: ['1970s', '1990s', '2010s']
+  },
+  satire: {
+    icon: '😏',
+    name: 'Satire',
+    prompt: 'Generate a satirical story premise that skewers society, politics, or human nature with dark humor. Think Terry Pratchett, Douglas Adams, Kurt Vonnegut.',
+    formula: ['Absurd World', 'Naive Protagonist', 'System Encountered', 'Absurdity Escalates', 'Commentary', 'Darkly Comic Resolution'],
+    eras: ['1950s', '1980s', '2010s']
+  },
+  magicRealism: {
+    icon: '✨',
+    name: 'Magic Realism',
+    prompt: 'Generate a magic realism premise where fantastical elements blend seamlessly with everyday life. Think Gabriel García Márquez, Isabel Allende.',
+    formula: ['Ordinary Life', 'Magic Introduced', 'Acceptance', 'Deeper Magic', 'Transformation', 'Understanding'],
+    eras: ['1950s', '1970s', '2000s']
+  },
+  biography: {
+    icon: '📝',
+    name: 'Biography',
+    prompt: 'Generate a biographical fiction premise exploring a fascinating life, real or imagined, with depth and authenticity. Think Walter Isaacson, Erik Larson.',
+    formula: ['Origin', 'Early Struggles', 'Defining Moment', 'Rise', 'Crisis', 'Legacy'],
+    eras: ['1900s', '1950s', '1980s', '2000s']
+  },
+  standup: {
+    icon: '🎤',
+    name: 'Comedy (Nate Bargatze)',
+    prompt: 'Generate a humorous first-person narrative premise in the style of clean observational comedy, finding absurdity in everyday life. Think Nate Bargatze, Brian Regan.',
+    formula: ['Setup', 'Observation', 'Escalation', 'Callback', 'Punchline'],
+    eras: ['2000s', '2010s']
+  },
+  graphicNovel: {
+    icon: '💬',
+    name: 'Graphic Novel',
+    prompt: 'Generate a visually-driven story premise suited for graphic novel format with bold scenes and visual storytelling. Think Alan Moore, Neil Gaiman\'s Sandman.',
+    formula: ['Visual Hook', 'World Established', 'Conflict', 'Visual Climax', 'Resolution'],
+    eras: ['1980s', '2000s', '2010s']
   }
 };
 
@@ -1712,6 +1934,89 @@ Output ONLY valid JSON:
     return fallbackPremises[genre] || fallbackPremises.literary;
   };
 
+  // Generate story outline (ported from iOS app)
+  // This creates a roadmap before Chapter 1 for better narrative structure
+  const generateOutline = async (genre, title, logline) => {
+    const genreData = genres[genre];
+    const formula = genreData?.formula || [];
+
+    const providers = primaryProvider === 'openai'
+      ? ['openai', 'anthropic']
+      : ['anthropic', 'openai'];
+
+    const systemPrompt = `You are a master story architect. Create a detailed chapter-by-chapter outline for a 10-chapter ${genreData.name} story.
+
+STORY TITLE: ${title}
+LOGLINE: ${logline}
+
+${formula.length > 0 ? `GENRE FORMULA (use as structural guide):
+${formula.map((f, i) => `${i + 1}. ${f}`).join('\n')}` : ''}
+
+Create 10 plot points, one for each chapter. Each point should be a single compelling sentence describing the key event/development of that chapter.
+
+Output ONLY a valid JSON array of 10 strings:
+["Chapter 1 plot point", "Chapter 2 plot point", ...]
+
+Guidelines:
+- Follow the genre formula beats when provided
+- Build tension through the middle chapters
+- Include a major twist or revelation around chapter 6-7
+- Build to a satisfying climax in chapters 8-9
+- Each point should naturally flow from the previous`;
+
+    for (const providerKey of providers) {
+      const apiKey = providerKey === 'openai' ? openaiKey : anthropicKey;
+      if (!apiKey) continue;
+
+      const provider = AI_PROVIDERS[providerKey];
+
+      try {
+        const response = await fetch(provider.endpoint, {
+          method: 'POST',
+          headers: provider.formatHeaders(apiKey),
+          body: JSON.stringify(provider.formatRequest(systemPrompt, 'Generate the 10-chapter story outline. Return ONLY valid JSON array.'))
+        });
+
+        if (!response.ok) continue;
+
+        const data = await response.json();
+        const text = provider.extractResponse(data);
+
+        if (text) {
+          const jsonMatch = text.match(/\[[\s\S]*\]/);
+          if (jsonMatch) {
+            const outline = JSON.parse(jsonMatch[0]);
+            if (Array.isArray(outline) && outline.length >= 5) {
+              return outline.slice(0, 10); // Ensure max 10 points
+            }
+          }
+        }
+      } catch (e) {
+        console.error(`${providerKey} outline generation failed:`, e);
+        continue;
+      }
+    }
+
+    // Fallback: Use genre formula as outline if API fails
+    if (formula.length > 0) {
+      return formula.slice(0, 10);
+    }
+
+    // Generic fallback outline
+    return [
+      'Introduction: The protagonist\'s ordinary world is established',
+      'Inciting incident disrupts the status quo',
+      'The protagonist commits to action',
+      'New allies and enemies emerge',
+      'First major obstacle is overcome',
+      'Midpoint revelation changes everything',
+      'Stakes escalate dramatically',
+      'All seems lost in the dark moment',
+      'Climactic confrontation',
+      'Resolution and new equilibrium'
+    ];
+  };
+
   // Generate MULTIPLE character names in ONE API call - much faster
   const generateCharacterNames = async (characters, genreName, storyTitle) => {
     const providers = primaryProvider === 'openai' 
@@ -1841,36 +2146,46 @@ Guidelines:
     setSelectedGenre(genre);
     setLoading(true);
     setLoadingText('Generating your unique story...');
-    
+
     const genreData = genres[genre];
-    
+
     // Generate unique AI premise (API call #1)
     const premise = await generatePremise(genre);
     setCurrentStory(premise);
-    
+
     const bible = new StoryBible(premise.title, genreData.name, premise.logline);
-    
+
+    // NEW: Select author style for this story (from iOS AuthorStyles.json)
+    const authorStyle = getRandomAuthorForGenre(genreData.name);
+    if (authorStyle) {
+      bible.setAuthorStyle(authorStyle);
+      console.log(`Selected author style: ${authorStyle.name}`);
+    }
+
+    // NEW: Set genre formula for structural guidance
+    if (genreData.formula) {
+      bible.setGenreFormula(genreData.formula);
+    }
+
+    // NEW: Generate story outline (API call #2 - ported from iOS app)
+    setLoadingText('Architecting your story...');
+    const outline = await generateOutline(genre, premise.title, premise.logline);
+    bible.setStoryOutline(outline);
+    console.log('Story outline generated:', outline);
+
     // Collect all characters that need names
     const charactersToName = [];
     let protagonistSeed = null;
     let protagonistSimResult = null;
-    
+
     // Generate protagonist seed if none selected
     if (selectedCharacter) {
       bible.setProtagonist(selectedCharacter);
     } else {
       setLoadingText('Creating your protagonist...');
-      
-      // Generate protagonist with genre-appropriate era
-      const genreEras = {
-        fantasy: ['1200s', '1400s', '1600s'],
-        scifi: ['2050s', '2100s', '2200s'],
-        mystery: ['1920s', '1950s', '2000s'],
-        romance: ['1800s', '1920s', '2010s'],
-        horror: ['1970s', '1990s', '2010s'],
-        literary: ['1950s', '1980s', '2010s']
-      };
-      const eras = genreEras[genre] || Object.keys(ERAS);
+
+      // Generate protagonist with genre-appropriate era (now uses genre's eras if defined)
+      const eras = genreData.eras || Object.keys(ERAS);
       const era = eras[Math.floor(Math.random() * eras.length)];
       
       const generator = new CharacterGenerator();
@@ -1953,13 +2268,20 @@ Guidelines:
 
   // Generate chapter via AI
   const generateChapter = async (chapterNum) => {
-    const providers = primaryProvider === 'openai' 
-      ? ['openai', 'anthropic'] 
+    const providers = primaryProvider === 'openai'
+      ? ['openai', 'anthropic']
       : ['anthropic', 'openai'];
-    
-    const systemPrompt = `You are a masterful storyteller creating an interactive Choose Your Own Adventure story. Write literary quality prose with vivid imagery, strong character voices, and proper pacing. Each chapter should be 600-900 words.
 
-CRITICAL: Maintain continuity with the Story Bible. Use character names EXACTLY as established. NEVER contradict established world facts. If a protagonist psychology section is provided, their reactions and behaviors should reflect their attachment style, core beliefs, and coping patterns.
+    // Get author style name for prompt enhancement
+    const authorName = storyBible?.authorStyle?.name || 'a masterful storyteller';
+
+    const systemPrompt = `You are ${authorName}, creating an interactive Choose Your Own Adventure story. Write literary quality prose with vivid imagery, strong character voices, and proper pacing. Each chapter should be 600-900 words.
+
+CRITICAL REQUIREMENTS:
+1. CONTINUITY: Maintain strict continuity with the Story Bible. Use character names EXACTLY as established. NEVER contradict established world facts.
+2. CHARACTER PSYCHOLOGY: If protagonist psychology is provided, their reactions and behaviors MUST reflect their attachment style, core beliefs, and coping patterns.
+3. STORY OUTLINE: Follow the story outline progression - hit the plot point for this chapter.
+4. WRITING STYLE: If writing style guidance is provided in the context, embody that author's voice, pacing, and storytelling techniques.
 
 Output ONLY valid JSON in this format:
 {
@@ -2719,31 +3041,127 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
 
       {/* GENRE SELECTION */}
       {screen === 'genre' && (
-        <div className="relative z-10 min-h-screen flex flex-col items-center justify-center p-8">
-          <button onClick={() => setScreen('landing')} className="absolute top-6 left-6 text-gray-500 hover:text-gray-300">
+        <div className="relative z-10 min-h-screen flex flex-col items-center p-8 overflow-y-auto">
+          <button onClick={() => setScreen('landing')} className="absolute top-6 left-6 text-gray-500 hover:text-gray-300 z-20">
             ← Back
           </button>
-          
+
           {selectedCharacter && (
-            <div className="mb-6 text-center">
+            <div className="mb-6 text-center pt-12">
               <p className="text-gray-500 text-sm">Playing as:</p>
               <p className="text-amber-400 font-bold">{selectedCharacter.name}</p>
             </div>
           )}
-          
-          <h2 className="text-3xl font-bold mb-8">Choose Your World</h2>
-          
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 max-w-4xl">
-            {Object.entries(genres).map(([key, genre]) => (
-              <button
-                key={key}
-                onClick={() => selectGenre(key)}
-                className="p-6 border border-gray-800 hover:border-amber-500/50 bg-gray-900/50 hover:bg-amber-500/5 transition-all text-center"
-              >
-                <span className="text-4xl block mb-3">{genre.icon}</span>
-                <h3 className="font-bold mb-2">{genre.name}</h3>
-              </button>
-            ))}
+
+          <h2 className="text-3xl font-bold mb-2 pt-8">Choose Your World</h2>
+          <p className="text-gray-500 mb-8 text-center">26 genres, each with unique story formulas and author styles</p>
+
+          {/* Genre Categories */}
+          <div className="w-full max-w-5xl space-y-8">
+            {/* Fantasy & Sci-Fi */}
+            <div>
+              <h3 className="text-xs text-amber-500 uppercase tracking-widest mb-3 font-bold">Speculative Fiction</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {['fantasy', 'darkFantasy', 'scifi', 'cyberpunk', 'retroScifi', 'dystopian', 'paranormal', 'magicRealism'].map(key => {
+                  const genre = genres[key];
+                  if (!genre) return null;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => selectGenre(key)}
+                      className="p-4 border border-gray-800 hover:border-amber-500/50 bg-gray-900/50 hover:bg-amber-500/5 transition-all text-center rounded"
+                    >
+                      <span className="text-2xl block mb-2">{genre.icon}</span>
+                      <h4 className="font-bold text-sm">{genre.name}</h4>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Mystery & Thriller */}
+            <div>
+              <h3 className="text-xs text-amber-500 uppercase tracking-widest mb-3 font-bold">Mystery & Suspense</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {['mystery', 'thriller', 'noir', 'crime', 'horror', 'gothic'].map(key => {
+                  const genre = genres[key];
+                  if (!genre) return null;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => selectGenre(key)}
+                      className="p-4 border border-gray-800 hover:border-amber-500/50 bg-gray-900/50 hover:bg-amber-500/5 transition-all text-center rounded"
+                    >
+                      <span className="text-2xl block mb-2">{genre.icon}</span>
+                      <h4 className="font-bold text-sm">{genre.name}</h4>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Romance & Drama */}
+            <div>
+              <h3 className="text-xs text-amber-500 uppercase tracking-widest mb-3 font-bold">Romance & Drama</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {['romance', 'romcom', 'literary', 'youngAdult', 'historical', 'biography'].map(key => {
+                  const genre = genres[key];
+                  if (!genre) return null;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => selectGenre(key)}
+                      className="p-4 border border-gray-800 hover:border-amber-500/50 bg-gray-900/50 hover:bg-amber-500/5 transition-all text-center rounded"
+                    >
+                      <span className="text-2xl block mb-2">{genre.icon}</span>
+                      <h4 className="font-bold text-sm">{genre.name}</h4>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Action & Adventure */}
+            <div>
+              <h3 className="text-xs text-amber-500 uppercase tracking-widest mb-3 font-bold">Action & Adventure</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {['adventure', 'action', 'western'].map(key => {
+                  const genre = genres[key];
+                  if (!genre) return null;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => selectGenre(key)}
+                      className="p-4 border border-gray-800 hover:border-amber-500/50 bg-gray-900/50 hover:bg-amber-500/5 transition-all text-center rounded"
+                    >
+                      <span className="text-2xl block mb-2">{genre.icon}</span>
+                      <h4 className="font-bold text-sm">{genre.name}</h4>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Unique & Experimental */}
+            <div className="pb-8">
+              <h3 className="text-xs text-amber-500 uppercase tracking-widest mb-3 font-bold">Unique & Experimental</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {['satire', 'standup', 'graphicNovel'].map(key => {
+                  const genre = genres[key];
+                  if (!genre) return null;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => selectGenre(key)}
+                      className="p-4 border border-gray-800 hover:border-amber-500/50 bg-gray-900/50 hover:bg-amber-500/5 transition-all text-center rounded"
+                    >
+                      <span className="text-2xl block mb-2">{genre.icon}</span>
+                      <h4 className="font-bold text-sm">{genre.name}</h4>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </div>
       )}
