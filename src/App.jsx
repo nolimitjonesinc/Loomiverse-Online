@@ -1511,14 +1511,15 @@ END STORY BIBLE
 // SECTION 6: AI PROVIDERS
 // ============================================
 
+// AI Providers - Uses Vercel serverless functions to avoid CORS issues
+// API keys are stored in Vercel environment variables, not in the browser
 const AI_PROVIDERS = {
   openai: {
     name: 'OpenAI GPT-4.1',
-    endpoint: 'https://api.openai.com/v1/chat/completions',
+    endpoint: '/api/openai', // Vercel serverless function
     model: 'gpt-4.1',
-    formatHeaders: (apiKey) => ({
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`
+    formatHeaders: () => ({
+      'Content-Type': 'application/json'
     }),
     formatRequest: (systemPrompt, userPrompt) => ({
       model: 'gpt-4.1',
@@ -1532,12 +1533,10 @@ const AI_PROVIDERS = {
   },
   anthropic: {
     name: 'Claude Sonnet 4',
-    endpoint: 'https://api.anthropic.com/v1/messages',
+    endpoint: '/api/anthropic', // Vercel serverless function
     model: 'claude-sonnet-4-20250514',
-    formatHeaders: (apiKey) => ({
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01'
+    formatHeaders: () => ({
+      'Content-Type': 'application/json'
     }),
     formatRequest: (systemPrompt, userPrompt) => ({
       model: 'claude-sonnet-4-20250514',
@@ -1893,15 +1892,12 @@ Output ONLY valid JSON:
 }`;
 
     for (const providerKey of providers) {
-      const apiKey = providerKey === 'openai' ? openaiKey : anthropicKey;
-      if (!apiKey) continue;
-
       const provider = AI_PROVIDERS[providerKey];
-      
+
       try {
         const response = await fetch(provider.endpoint, {
           method: 'POST',
-          headers: provider.formatHeaders(apiKey),
+          headers: provider.formatHeaders(),
           body: JSON.stringify(provider.formatRequest(systemPrompt, `Generate a unique ${genreData.name} story premise. Return ONLY valid JSON.`))
         });
 
@@ -1965,15 +1961,12 @@ Guidelines:
 - Each point should naturally flow from the previous`;
 
     for (const providerKey of providers) {
-      const apiKey = providerKey === 'openai' ? openaiKey : anthropicKey;
-      if (!apiKey) continue;
-
       const provider = AI_PROVIDERS[providerKey];
 
       try {
         const response = await fetch(provider.endpoint, {
           method: 'POST',
-          headers: provider.formatHeaders(apiKey),
+          headers: provider.formatHeaders(),
           body: JSON.stringify(provider.formatRequest(systemPrompt, 'Generate the 10-chapter story outline. Return ONLY valid JSON array.'))
         });
 
@@ -2042,15 +2035,12 @@ Guidelines:
 - Each name should be distinct`;
 
     for (const providerKey of providers) {
-      const apiKey = providerKey === 'openai' ? openaiKey : anthropicKey;
-      if (!apiKey) continue;
-
       const provider = AI_PROVIDERS[providerKey];
-      
+
       try {
         const response = await fetch(provider.endpoint, {
           method: 'POST',
-          headers: provider.formatHeaders(apiKey),
+          headers: provider.formatHeaders(),
           body: JSON.stringify(provider.formatRequest(systemPrompt, 'Generate all character names. Return ONLY valid JSON array.'))
         });
 
@@ -2108,15 +2098,12 @@ Guidelines:
 - Just a first name, no surname`;
 
     for (const providerKey of providers) {
-      const apiKey = providerKey === 'openai' ? openaiKey : anthropicKey;
-      if (!apiKey) continue;
-
       const provider = AI_PROVIDERS[providerKey];
-      
+
       try {
         const response = await fetch(provider.endpoint, {
           method: 'POST',
-          headers: provider.formatHeaders(apiKey),
+          headers: provider.formatHeaders(),
           body: JSON.stringify(provider.formatRequest(systemPrompt, 'Generate a character name. Return ONLY valid JSON.'))
         });
 
@@ -2302,15 +2289,12 @@ Output ONLY valid JSON in this format:
     const userPrompt = `${context}\n\nWrite Chapter ${chapterNum}. Return ONLY valid JSON.`;
 
     for (const providerKey of providers) {
-      const apiKey = providerKey === 'openai' ? openaiKey : anthropicKey;
-      if (!apiKey) continue;
-
       const provider = AI_PROVIDERS[providerKey];
-      
+
       try {
         const response = await fetch(provider.endpoint, {
           method: 'POST',
-          headers: provider.formatHeaders(apiKey),
+          headers: provider.formatHeaders(),
           body: JSON.stringify(provider.formatRequest(systemPrompt, userPrompt))
         });
 
