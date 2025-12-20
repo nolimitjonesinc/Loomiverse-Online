@@ -67,6 +67,16 @@ const COMMUNITY_INSTITUTIONS = {
 };
 
 const ERAS = {
+  // Medieval/Fantasy eras
+  "1200s": { global: ["feudal societies", "crusades", "castle building", "early trade routes"] },
+  "1400s": { global: ["Renaissance begins", "exploration age", "plague aftermath", "printing press"] },
+  "1600s": { global: ["colonization", "scientific revolution", "religious wars", "absolute monarchies"] },
+  // Historical eras
+  "1800s": { global: ["Industrial Revolution", "colonialism peak", "Victorian era", "class struggles"] },
+  "1860s": { global: ["American Civil War", "abolition movement", "frontier expansion", "reconstruction"] },
+  "1880s": { global: ["Gilded Age", "railroad expansion", "immigration waves", "labor movements"] },
+  "1900s": { global: ["Progressive Era", "immigration", "industrialization", "early automobiles"] },
+  "1920s": { global: ["Roaring Twenties", "jazz age", "prohibition", "women's suffrage"] },
   "1930s": { global: ["Great Depression", "rise of fascism", "dust bowl", "New Deal"] },
   "1940s": { global: ["World War II", "Holocaust", "atomic age", "post-war rebuilding"] },
   "1950s": { global: ["Cold War", "post-war prosperity", "conformity culture", "early civil rights"] },
@@ -75,7 +85,11 @@ const ERAS = {
   "1980s": { global: ["Reagan era", "AIDS crisis", "Cold War peak", "consumerism"] },
   "1990s": { global: ["Cold War ends", "tech boom", "globalization", "relative peace"] },
   "2000s": { global: ["9/11", "Iraq War", "social media rises", "2008 crash"] },
-  "2010s": { global: ["recovery and inequality", "smartphone era", "political polarization", "climate awareness"] }
+  "2010s": { global: ["recovery and inequality", "smartphone era", "political polarization", "climate awareness"] },
+  // Future/Sci-Fi eras
+  "2050s": { global: ["climate crisis peak", "AI revolution", "space colonization begins", "genetic engineering"] },
+  "2100s": { global: ["interplanetary society", "post-scarcity economics", "human augmentation", "alien contact rumors"] },
+  "2200s": { global: ["galactic expansion", "consciousness uploading", "terraforming projects", "post-human evolution"] }
 };
 
 const REGIONS = {
