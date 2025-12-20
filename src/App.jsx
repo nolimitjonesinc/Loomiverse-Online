@@ -3411,14 +3411,32 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                 {['fantasy', 'darkFantasy', 'scifi', 'cyberpunk', 'retroScifi', 'dystopian', 'paranormal', 'magicRealism'].map(key => {
                   const genre = genres[key];
                   if (!genre) return null;
+                  const hasImage = GENRE_IMAGES[key];
                   return (
                     <button
                       key={key}
                       onClick={() => selectGenre(key)}
-                      className="p-4 border border-gray-800 hover:border-amber-500/50 bg-gray-900/50 hover:bg-amber-500/5 transition-all text-center rounded"
+                      className={`relative overflow-hidden border border-gray-800 hover:border-amber-500/50 bg-gray-900/50 hover:bg-amber-500/5 transition-all text-center rounded group ${hasImage ? 'h-32' : 'p-4'}`}
                     >
-                      <span className="text-2xl block mb-2">{genre.icon}</span>
-                      <h4 className="font-bold text-sm">{genre.name}</h4>
+                      {hasImage ? (
+                        <>
+                          <img
+                            src={`/images/genres/${GENRE_IMAGES[key]}`}
+                            alt={genre.name}
+                            className="absolute inset-0 w-full h-full object-cover opacity-50 group-hover:opacity-70 transition-opacity"
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-950/50 to-transparent" />
+                          <div className="absolute bottom-0 left-0 right-0 p-3">
+                            <span className="text-xl">{genre.icon}</span>
+                            <h4 className="font-bold text-sm text-white">{genre.name}</h4>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-2xl block mb-2">{genre.icon}</span>
+                          <h4 className="font-bold text-sm">{genre.name}</h4>
+                        </>
+                      )}
                     </button>
                   );
                 })}
@@ -3432,14 +3450,32 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                 {['mystery', 'thriller', 'noir', 'crime', 'horror', 'gothic'].map(key => {
                   const genre = genres[key];
                   if (!genre) return null;
+                  const hasImage = GENRE_IMAGES[key];
                   return (
                     <button
                       key={key}
                       onClick={() => selectGenre(key)}
-                      className="p-4 border border-gray-800 hover:border-amber-500/50 bg-gray-900/50 hover:bg-amber-500/5 transition-all text-center rounded"
+                      className={`relative overflow-hidden border border-gray-800 hover:border-amber-500/50 bg-gray-900/50 hover:bg-amber-500/5 transition-all text-center rounded group ${hasImage ? 'h-32' : 'p-4'}`}
                     >
-                      <span className="text-2xl block mb-2">{genre.icon}</span>
-                      <h4 className="font-bold text-sm">{genre.name}</h4>
+                      {hasImage ? (
+                        <>
+                          <img
+                            src={`/images/genres/${GENRE_IMAGES[key]}`}
+                            alt={genre.name}
+                            className="absolute inset-0 w-full h-full object-cover opacity-50 group-hover:opacity-70 transition-opacity"
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-950/50 to-transparent" />
+                          <div className="absolute bottom-0 left-0 right-0 p-3">
+                            <span className="text-xl">{genre.icon}</span>
+                            <h4 className="font-bold text-sm text-white">{genre.name}</h4>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-2xl block mb-2">{genre.icon}</span>
+                          <h4 className="font-bold text-sm">{genre.name}</h4>
+                        </>
+                      )}
                     </button>
                   );
                 })}
@@ -3453,14 +3489,32 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                 {['romance', 'romcom', 'literary', 'youngAdult', 'historical', 'biography'].map(key => {
                   const genre = genres[key];
                   if (!genre) return null;
+                  const hasImage = GENRE_IMAGES[key];
                   return (
                     <button
                       key={key}
                       onClick={() => selectGenre(key)}
-                      className="p-4 border border-gray-800 hover:border-amber-500/50 bg-gray-900/50 hover:bg-amber-500/5 transition-all text-center rounded"
+                      className={`relative overflow-hidden border border-gray-800 hover:border-amber-500/50 bg-gray-900/50 hover:bg-amber-500/5 transition-all text-center rounded group ${hasImage ? 'h-32' : 'p-4'}`}
                     >
-                      <span className="text-2xl block mb-2">{genre.icon}</span>
-                      <h4 className="font-bold text-sm">{genre.name}</h4>
+                      {hasImage ? (
+                        <>
+                          <img
+                            src={`/images/genres/${GENRE_IMAGES[key]}`}
+                            alt={genre.name}
+                            className="absolute inset-0 w-full h-full object-cover opacity-50 group-hover:opacity-70 transition-opacity"
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-950/50 to-transparent" />
+                          <div className="absolute bottom-0 left-0 right-0 p-3">
+                            <span className="text-xl">{genre.icon}</span>
+                            <h4 className="font-bold text-sm text-white">{genre.name}</h4>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-2xl block mb-2">{genre.icon}</span>
+                          <h4 className="font-bold text-sm">{genre.name}</h4>
+                        </>
+                      )}
                     </button>
                   );
                 })}
@@ -3474,14 +3528,32 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                 {['adventure', 'action', 'western'].map(key => {
                   const genre = genres[key];
                   if (!genre) return null;
+                  const hasImage = GENRE_IMAGES[key];
                   return (
                     <button
                       key={key}
                       onClick={() => selectGenre(key)}
-                      className="p-4 border border-gray-800 hover:border-amber-500/50 bg-gray-900/50 hover:bg-amber-500/5 transition-all text-center rounded"
+                      className={`relative overflow-hidden border border-gray-800 hover:border-amber-500/50 bg-gray-900/50 hover:bg-amber-500/5 transition-all text-center rounded group ${hasImage ? 'h-32' : 'p-4'}`}
                     >
-                      <span className="text-2xl block mb-2">{genre.icon}</span>
-                      <h4 className="font-bold text-sm">{genre.name}</h4>
+                      {hasImage ? (
+                        <>
+                          <img
+                            src={`/images/genres/${GENRE_IMAGES[key]}`}
+                            alt={genre.name}
+                            className="absolute inset-0 w-full h-full object-cover opacity-50 group-hover:opacity-70 transition-opacity"
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-950/50 to-transparent" />
+                          <div className="absolute bottom-0 left-0 right-0 p-3">
+                            <span className="text-xl">{genre.icon}</span>
+                            <h4 className="font-bold text-sm text-white">{genre.name}</h4>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-2xl block mb-2">{genre.icon}</span>
+                          <h4 className="font-bold text-sm">{genre.name}</h4>
+                        </>
+                      )}
                     </button>
                   );
                 })}
@@ -3495,14 +3567,32 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                 {['satire', 'standup', 'graphicNovel'].map(key => {
                   const genre = genres[key];
                   if (!genre) return null;
+                  const hasImage = GENRE_IMAGES[key];
                   return (
                     <button
                       key={key}
                       onClick={() => selectGenre(key)}
-                      className="p-4 border border-gray-800 hover:border-amber-500/50 bg-gray-900/50 hover:bg-amber-500/5 transition-all text-center rounded"
+                      className={`relative overflow-hidden border border-gray-800 hover:border-amber-500/50 bg-gray-900/50 hover:bg-amber-500/5 transition-all text-center rounded group ${hasImage ? 'h-32' : 'p-4'}`}
                     >
-                      <span className="text-2xl block mb-2">{genre.icon}</span>
-                      <h4 className="font-bold text-sm">{genre.name}</h4>
+                      {hasImage ? (
+                        <>
+                          <img
+                            src={`/images/genres/${GENRE_IMAGES[key]}`}
+                            alt={genre.name}
+                            className="absolute inset-0 w-full h-full object-cover opacity-50 group-hover:opacity-70 transition-opacity"
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-950/50 to-transparent" />
+                          <div className="absolute bottom-0 left-0 right-0 p-3">
+                            <span className="text-xl">{genre.icon}</span>
+                            <h4 className="font-bold text-sm text-white">{genre.name}</h4>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-2xl block mb-2">{genre.icon}</span>
+                          <h4 className="font-bold text-sm">{genre.name}</h4>
+                        </>
+                      )}
                     </button>
                   );
                 })}
