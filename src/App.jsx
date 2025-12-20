@@ -722,6 +722,11 @@ class CharacterGenerator {
     };
   }
 
+  generateSeed(era = null, region = null) {
+    const options = { era, region };
+    return this.generate(options);
+  }
+
   generate(options = {}) {
     const world = this.generateWorldContext(options.era, options.region);
     const cultural = this.generateCulturalIdentity(world);
