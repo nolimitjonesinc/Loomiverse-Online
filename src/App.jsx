@@ -1223,10 +1223,140 @@ class StorageManager {
   saveSetting(key, value) {
     localStorage.setItem(this.prefix + 'setting_' + key, JSON.stringify(value));
   }
-  
+
   getSetting(key, defaultValue = null) {
     const d = localStorage.getItem(this.prefix + 'setting_' + key);
     return d ? JSON.parse(d) : defaultValue;
+  }
+
+  // ============================================
+  // USER PROFILE & STATS
+  // ============================================
+
+  getDefaultProfile() {
+    return {
+      createdAt: new Date().toISOString(),
+      lastActive: new Date().toISOString(),
+      displayName: 'Storyteller',
+      stats: {
+        storiesCreated: 0,
+        storiesCompleted: 0,
+        chaptersRead: 0,
+        charactersGenerated: 0,
+        totalReadingTimeMinutes: 0,
+        currentStreak: 0,
+        longestStreak: 0,
+        lastReadDate: null
+      },
+      genreUsage: {},
+      achievements: [],
+      preferences: {
+        favoriteGenres: [],
+        preferredReadingLength: 'medium',
+        darkMode: true
+      }
+    };
+  }
+
+  saveUserProfile(profile) {
+    localStorage.setItem(this.prefix + 'user_profile', JSON.stringify(profile));
+  }
+
+  getUserProfile() {
+    const d = localStorage.getItem(this.prefix + 'user_profile');
+    return d ? JSON.parse(d) : this.getDefaultProfile();
+  }
+
+  updateStat(statKey, value, operation = 'set') {
+    const profile = this.getUserProfile();
+    if (operation === 'increment') {
+      profile.stats[statKey] = (profile.stats[statKey] || 0) + value;
+    } else if (operation === 'set') {
+      profile.stats[statKey] = value;
+    }
+    profile.lastActive = new Date().toISOString();
+    this.saveUserProfile(profile);
+    return profile;
+  }
+
+  trackGenreUsage(genre) {
+    const profile = this.getUserProfile();
+    profile.genreUsage[genre] = (profile.genreUsage[genre] || 0) + 1;
+    this.saveUserProfile(profile);
+  }
+
+  updateReadingStreak() {
+    const profile = this.getUserProfile();
+    const today = new Date().toDateString();
+    const lastRead = profile.stats.lastReadDate;
+
+    if (!lastRead) {
+      profile.stats.currentStreak = 1;
+    } else {
+      const lastDate = new Date(lastRead);
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+
+      if (lastDate.toDateString() === yesterday.toDateString()) {
+        profile.stats.currentStreak += 1;
+      } else if (lastDate.toDateString() !== today) {
+        profile.stats.currentStreak = 1;
+      }
+    }
+
+    profile.stats.lastReadDate = today;
+    profile.stats.longestStreak = Math.max(
+      profile.stats.longestStreak,
+      profile.stats.currentStreak
+    );
+    this.saveUserProfile(profile);
+    return profile;
+  }
+
+  getFavoriteGenres() {
+    const profile = this.getUserProfile();
+    return Object.entries(profile.genreUsage)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([genre]) => genre);
+  }
+
+  unlockAchievement(achievementId) {
+    const profile = this.getUserProfile();
+    if (!profile.achievements.includes(achievementId)) {
+      profile.achievements.push(achievementId);
+      this.saveUserProfile(profile);
+      return true;
+    }
+    return false;
+  }
+
+  checkAchievements() {
+    const profile = this.getUserProfile();
+    const newAchievements = [];
+
+    const achievementConditions = {
+      'first_story': profile.stats.storiesCreated >= 1,
+      'storyteller': profile.stats.storiesCreated >= 5,
+      'prolific_author': profile.stats.storiesCreated >= 10,
+      'first_completion': profile.stats.storiesCompleted >= 1,
+      'finisher': profile.stats.storiesCompleted >= 5,
+      'character_creator': profile.stats.charactersGenerated >= 1,
+      'character_master': profile.stats.charactersGenerated >= 10,
+      'bookworm': profile.stats.chaptersRead >= 50,
+      'dedicated_reader': profile.stats.chaptersRead >= 100,
+      'streak_starter': profile.stats.currentStreak >= 3,
+      'streak_keeper': profile.stats.currentStreak >= 7,
+      'genre_explorer': Object.keys(profile.genreUsage).length >= 5
+    };
+
+    for (const [id, condition] of Object.entries(achievementConditions)) {
+      if (condition && this.unlockAchievement(id)) {
+        newAchievements.push(id);
+      }
+    }
+
+    return newAchievements;
   }
 }
 
@@ -1568,8 +1698,42 @@ const AI_PROVIDERS = {
 };
 
 // ============================================
-// SECTION 7: GENRE DATA
+// SECTION 7: GENRE DATA & CONSTANTS
 // ============================================
+
+// Achievement definitions for user profile
+const ACHIEVEMENTS = {
+  'first_story': { name: 'First Steps', description: 'Created your first story', icon: '📖' },
+  'storyteller': { name: 'Storyteller', description: 'Created 5 stories', icon: '✨' },
+  'prolific_author': { name: 'Prolific Author', description: 'Created 10 stories', icon: '🏆' },
+  'first_completion': { name: 'The End', description: 'Completed your first story', icon: '🎬' },
+  'finisher': { name: 'Finisher', description: 'Completed 5 stories', icon: '🎯' },
+  'character_creator': { name: 'Character Creator', description: 'Generated your first character', icon: '👤' },
+  'character_master': { name: 'Character Master', description: 'Generated 10 characters', icon: '👥' },
+  'bookworm': { name: 'Bookworm', description: 'Read 50 chapters', icon: '📚' },
+  'dedicated_reader': { name: 'Dedicated Reader', description: 'Read 100 chapters', icon: '🌟' },
+  'streak_starter': { name: 'Streak Starter', description: '3-day reading streak', icon: '🔥' },
+  'streak_keeper': { name: 'Streak Keeper', description: '7-day reading streak', icon: '💪' },
+  'genre_explorer': { name: 'Genre Explorer', description: 'Tried 5 different genres', icon: '🗺️' }
+};
+
+// Genre to image file mapping (for visual polish)
+const GENRE_IMAGES = {
+  fantasy: 'fantasy.png',
+  darkFantasy: 'fantasy.png',
+  scifi: 'scifi.png',
+  cyberpunk: 'scifi.png',
+  retroScifi: 'scifi.png',
+  horror: 'horror.png',
+  gothic: 'horror.png',
+  romance: 'romance.png',
+  romcom: 'romance.png',
+  thriller: 'thriller.png',
+  noir: 'thriller.png',
+  western: 'western.png',
+  dystopian: 'dystopian.png',
+  action: 'action.png'
+};
 
 // ============================================
 // EXPANDED GENRES (26+ from iOS app)
