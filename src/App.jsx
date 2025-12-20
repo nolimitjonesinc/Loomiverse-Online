@@ -1957,7 +1957,10 @@ export default function Loomiverse() {
   const [showBible, setShowBible] = useState(false);
   const [expandedCharacter, setExpandedCharacter] = useState(null);
   const [characterFilter, setCharacterFilter] = useState('all'); // 'all', 'user', 'story'
-  
+
+  // User profile
+  const [userProfile, setUserProfile] = useState(null);
+
   // Settings
   const [primaryProvider, setPrimaryProvider] = useState('openai');
   const [openaiKey, setOpenaiKey] = useState('');
@@ -1970,6 +1973,7 @@ export default function Loomiverse() {
     setOpenaiKey(storage.getApiKey('openai'));
     setAnthropicKey(storage.getApiKey('anthropic'));
     setPrimaryProvider(storage.getSetting('primaryProvider', 'openai'));
+    setUserProfile(storage.getUserProfile());
   }, []);
 
   // Save settings
@@ -2801,7 +2805,7 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
           </div>
 
           {/* Stats */}
-          <div className="grid grid-cols-2 gap-8 text-center mb-8">
+          <div className="grid grid-cols-3 gap-8 text-center mb-8">
             <button onClick={() => setScreen('characters')} className="hover:opacity-80 transition-opacity">
               <div className="text-3xl font-bold text-amber-500">{characters.length}</div>
               <div className="text-xs text-gray-500">Characters</div>
@@ -2810,15 +2814,27 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
               <div className="text-3xl font-bold text-amber-500">{savedStories.length}</div>
               <div className="text-xs text-gray-500">Stories</div>
             </button>
+            <button onClick={() => setScreen('profile')} className="hover:opacity-80 transition-opacity">
+              <div className="text-3xl font-bold text-amber-500">{userProfile?.stats?.chaptersRead || 0}</div>
+              <div className="text-xs text-gray-500">Chapters</div>
+            </button>
           </div>
 
-          {/* Settings */}
-          <button
-            onClick={() => setShowSettings(true)}
-            className="text-gray-500 hover:text-amber-500 flex items-center gap-2"
-          >
-            <Settings className="w-4 h-4" /> Settings
-          </button>
+          {/* Bottom Actions */}
+          <div className="flex items-center gap-6">
+            <button
+              onClick={() => setScreen('profile')}
+              className="text-gray-500 hover:text-amber-500 flex items-center gap-2"
+            >
+              <User className="w-4 h-4" /> Profile
+            </button>
+            <button
+              onClick={() => setShowSettings(true)}
+              className="text-gray-500 hover:text-amber-500 flex items-center gap-2"
+            >
+              <Settings className="w-4 h-4" /> Settings
+            </button>
+          </div>
         </div>
       )}
 
@@ -3209,6 +3225,137 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {/* PROFILE SCREEN */}
+      {screen === 'profile' && (
+        <div className="relative z-10 min-h-screen p-8">
+          <button onClick={() => setScreen('landing')} className="mb-6 text-gray-500 hover:text-gray-300 flex items-center gap-2">
+            ← Back to Home
+          </button>
+
+          <div className="max-w-4xl mx-auto">
+            {/* Profile Header */}
+            <div className="flex items-center gap-6 mb-8">
+              <div className="w-24 h-24 rounded-full bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center">
+                <User className="w-12 h-12 text-gray-950" />
+              </div>
+              <div>
+                <h2 className="text-3xl font-bold">{userProfile?.displayName || 'Storyteller'}</h2>
+                <p className="text-gray-500">Member since {userProfile?.createdAt ? new Date(userProfile.createdAt).toLocaleDateString() : 'Today'}</p>
+                {userProfile?.stats?.currentStreak > 0 && (
+                  <p className="text-amber-500 flex items-center gap-1 mt-1">
+                    🔥 {userProfile.stats.currentStreak} day streak
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Stats Grid */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+              <div className="p-4 border border-gray-800 bg-gray-900/50 rounded-lg text-center">
+                <div className="text-3xl font-bold text-amber-500">{userProfile?.stats?.storiesCreated || 0}</div>
+                <div className="text-xs text-gray-500 uppercase tracking-wide">Stories Created</div>
+              </div>
+              <div className="p-4 border border-gray-800 bg-gray-900/50 rounded-lg text-center">
+                <div className="text-3xl font-bold text-amber-500">{userProfile?.stats?.storiesCompleted || 0}</div>
+                <div className="text-xs text-gray-500 uppercase tracking-wide">Completed</div>
+              </div>
+              <div className="p-4 border border-gray-800 bg-gray-900/50 rounded-lg text-center">
+                <div className="text-3xl font-bold text-amber-500">{userProfile?.stats?.chaptersRead || 0}</div>
+                <div className="text-xs text-gray-500 uppercase tracking-wide">Chapters Read</div>
+              </div>
+              <div className="p-4 border border-gray-800 bg-gray-900/50 rounded-lg text-center">
+                <div className="text-3xl font-bold text-amber-500">{userProfile?.stats?.charactersGenerated || 0}</div>
+                <div className="text-xs text-gray-500 uppercase tracking-wide">Characters</div>
+              </div>
+            </div>
+
+            {/* Favorite Genres */}
+            <div className="mb-8">
+              <h3 className="text-xs text-amber-500 uppercase tracking-widest mb-4 font-bold">Favorite Genres</h3>
+              <div className="flex gap-3 flex-wrap">
+                {storage.getFavoriteGenres().length > 0 ? (
+                  storage.getFavoriteGenres().map(genreKey => (
+                    <div key={genreKey} className="px-4 py-2 border border-amber-500/50 bg-amber-500/10 rounded-full text-amber-400">
+                      {genres[genreKey]?.icon} {genres[genreKey]?.name || genreKey}
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-gray-500">Start creating stories to see your favorites!</p>
+                )}
+              </div>
+            </div>
+
+            {/* Achievements */}
+            <div className="mb-8">
+              <h3 className="text-xs text-amber-500 uppercase tracking-widest mb-4 font-bold">Achievements</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {Object.entries(ACHIEVEMENTS).map(([id, achievement]) => {
+                  const unlocked = userProfile?.achievements?.includes(id);
+                  return (
+                    <div
+                      key={id}
+                      className={`p-4 border rounded-lg text-center transition-all ${
+                        unlocked
+                          ? 'border-amber-500/50 bg-amber-500/10'
+                          : 'border-gray-800 bg-gray-900/30 opacity-50'
+                      }`}
+                    >
+                      <div className="text-2xl mb-2">{unlocked ? achievement.icon : '🔒'}</div>
+                      <div className={`font-bold text-sm ${unlocked ? 'text-amber-400' : 'text-gray-600'}`}>
+                        {achievement.name}
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">{achievement.description}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Reading Stats */}
+            <div className="grid md:grid-cols-2 gap-6">
+              <div className="p-6 border border-gray-800 bg-gray-900/50 rounded-lg">
+                <h3 className="text-xs text-amber-500 uppercase tracking-widest mb-4 font-bold">Reading Streaks</h3>
+                <div className="flex justify-between">
+                  <div>
+                    <div className="text-2xl font-bold">{userProfile?.stats?.currentStreak || 0}</div>
+                    <div className="text-xs text-gray-500">Current Streak</div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold">{userProfile?.stats?.longestStreak || 0}</div>
+                    <div className="text-xs text-gray-500">Longest Streak</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-6 border border-gray-800 bg-gray-900/50 rounded-lg">
+                <h3 className="text-xs text-amber-500 uppercase tracking-widest mb-4 font-bold">Genre Breakdown</h3>
+                {Object.keys(userProfile?.genreUsage || {}).length > 0 ? (
+                  <div className="space-y-2">
+                    {Object.entries(userProfile?.genreUsage || {})
+                      .sort((a, b) => b[1] - a[1])
+                      .slice(0, 5)
+                      .map(([genreKey, count]) => (
+                        <div key={genreKey} className="flex items-center gap-2">
+                          <span className="text-sm text-gray-400 w-24 truncate">{genres[genreKey]?.name || genreKey}</span>
+                          <div className="flex-1 h-2 bg-gray-800 rounded-full">
+                            <div
+                              className="h-full bg-amber-500 rounded-full"
+                              style={{ width: `${(count / Math.max(...Object.values(userProfile.genreUsage))) * 100}%` }}
+                            />
+                          </div>
+                          <span className="text-xs text-gray-500">{count}</span>
+                        </div>
+                      ))}
+                  </div>
+                ) : (
+                  <p className="text-gray-500 text-sm">No genres explored yet</p>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
