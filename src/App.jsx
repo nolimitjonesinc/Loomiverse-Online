@@ -2600,6 +2600,12 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
       {/* LANDING SCREEN */}
       {screen === 'landing' && (
         <div className="relative z-10 min-h-screen flex flex-col items-center justify-center p-8">
+          {/* Logo */}
+          <img
+            src="/images/logos/loomiverse-logo.png"
+            alt="Loomiverse"
+            className="w-28 h-28 mb-4 object-contain"
+          />
           <h1 className="text-6xl md:text-7xl font-bold mb-2 bg-gradient-to-r from-gray-100 via-amber-400 to-gray-100 bg-clip-text text-transparent">
             Loomiverse
           </h1>
