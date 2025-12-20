@@ -2002,10 +2002,16 @@ export default function Loomiverse() {
     
     character.name = name;
     character.origin = 'user';
-    
+
     storage.saveCharacter(character, 'user');
     setCharacters(storage.getCharacters());
     setSelectedCharacter(character);
+
+    // Track character generation stat
+    storage.updateStat('charactersGenerated', 1, 'increment');
+    storage.checkAchievements();
+    setUserProfile(storage.getUserProfile());
+
     setGeneratingCharacter(false);
   };
 
@@ -2321,6 +2327,9 @@ Guidelines:
     setLoading(true);
     setLoadingText('Generating your unique story...');
 
+    // Track genre usage
+    storage.trackGenreUsage(genre);
+
     const genreData = genres[genre];
 
     // Generate unique AI premise (API call #1)
@@ -2590,10 +2599,17 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
       setChapterData(chapter);
       setChoiceMade(false);
       setScreen('reading');
+
+      // Track story creation and first chapter read
+      storage.updateStat('storiesCreated', 1, 'increment');
+      storage.updateStat('chaptersRead', 1, 'increment');
+      storage.updateReadingStreak();
+      storage.checkAchievements();
+      setUserProfile(storage.getUserProfile());
     } catch (error) {
       console.error('Error generating chapter:', error);
     }
-    
+
     setLoading(false);
   };
 
@@ -2613,6 +2629,10 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
     bible.currentChapter++;
 
     if (bible.currentChapter > bible.totalChapters) {
+      // Track story completion
+      storage.updateStat('storiesCompleted', 1, 'increment');
+      storage.checkAchievements();
+      setUserProfile(storage.getUserProfile());
       alert('🎉 Story complete!');
       return;
     }
@@ -2631,6 +2651,12 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
       setStoryBible(bible);
       setChapterData(chapter);
       setChoiceMade(false);
+
+      // Track chapter read
+      storage.updateStat('chaptersRead', 1, 'increment');
+      storage.updateReadingStreak();
+      storage.checkAchievements();
+      setUserProfile(storage.getUserProfile());
     } catch (error) {
       console.error('Error generating chapter:', error);
     }
