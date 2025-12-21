@@ -1213,6 +1213,38 @@ class StorageManager {
     localStorage.removeItem(this.prefix + 'story_' + id);
   }
 
+  // Bookmarks for stories
+  getBookmarks(storyId) {
+    const data = this.loadStory(storyId);
+    return data?.bookmarks || [];
+  }
+
+  addBookmark(storyId, chapterNumber, note = '') {
+    const data = this.loadStory(storyId);
+    if (!data) return null;
+
+    const bookmark = {
+      id: `bm_${Date.now()}`,
+      chapterNumber,
+      note,
+      createdAt: new Date().toISOString()
+    };
+
+    data.bookmarks = data.bookmarks || [];
+    data.bookmarks.push(bookmark);
+    this.saveStory(storyId, data);
+    return bookmark;
+  }
+
+  deleteBookmark(storyId, bookmarkId) {
+    const data = this.loadStory(storyId);
+    if (!data || !data.bookmarks) return false;
+
+    data.bookmarks = data.bookmarks.filter(b => b.id !== bookmarkId);
+    this.saveStory(storyId, data);
+    return true;
+  }
+
   // Characters - Enhanced with origin tracking
   saveCharacter(char, origin = 'user', storyId = null, storyTitle = null) {
     const chars = this.getCharacters();
@@ -2160,6 +2192,10 @@ export default function Loomiverse() {
   // Library Theme
   const [libraryTheme, setLibraryTheme] = useState('ancientCastle');
 
+  // Bookmarks
+  const [showBookmarks, setShowBookmarks] = useState(false);
+  const [storyBookmarks, setStoryBookmarks] = useState([]);
+
   // Settings
   const [primaryProvider, setPrimaryProvider] = useState('openai');
   const [openaiKey, setOpenaiKey] = useState('');
@@ -2924,10 +2960,12 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
       );
       // Copy all properties from saved bible
       Object.assign(loadedBible, data.bible);
-      
+
       setStoryBible(loadedBible);
       setChapterData(data.currentChapter);
       setChoiceMade(false);
+      setStoryBookmarks(storage.getBookmarks(id));
+      setShowBookmarks(false);
       setScreen('reading');
     }
   };
@@ -4386,6 +4424,28 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                 <button onClick={saveStory} className="p-2 hover:bg-gray-800 rounded" title="Save">
                   <Save className="w-4 h-4 text-gray-500 hover:text-amber-500" />
                 </button>
+                <button
+                  onClick={() => {
+                    storage.addBookmark(storyBible.storyId, storyBible.currentChapter, `Chapter ${storyBible.currentChapter}`);
+                    setStoryBookmarks(storage.getBookmarks(storyBible.storyId));
+                  }}
+                  className="p-2 hover:bg-gray-800 rounded"
+                  title="Add Bookmark"
+                >
+                  <Bookmark className="w-4 h-4 text-gray-500 hover:text-amber-500" />
+                </button>
+                <button
+                  onClick={() => setShowBookmarks(!showBookmarks)}
+                  className="p-2 hover:bg-gray-800 rounded relative"
+                  title="View Bookmarks"
+                >
+                  <BookOpen className="w-4 h-4 text-gray-500 hover:text-amber-500" />
+                  {storyBookmarks.length > 0 && (
+                    <span className="absolute -top-1 -right-1 w-4 h-4 bg-amber-500 text-gray-950 text-[10px] rounded-full flex items-center justify-center font-bold">
+                      {storyBookmarks.length}
+                    </span>
+                  )}
+                </button>
                 <div className="w-32 h-1 bg-gray-800 rounded">
                   <div 
                     className="h-full bg-amber-500 rounded transition-all" 
@@ -4681,6 +4741,86 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                       ))}
                     </div>
                   )}
+                </div>
+              </div>
+            </aside>
+          )}
+
+          {/* Bookmarks Panel */}
+          {showBookmarks && (
+            <aside className="fixed top-0 left-0 h-full w-80 bg-gray-950 border-r border-gray-800 z-50 overflow-y-auto">
+              <div className="p-5">
+                <div className="flex justify-between items-center mb-6 pb-3 border-b border-gray-800">
+                  <div>
+                    <h3 className="text-amber-500 font-bold text-lg flex items-center gap-2">
+                      <Bookmark className="w-5 h-5" /> Bookmarks
+                    </h3>
+                    <p className="text-xs text-gray-600">{storyBookmarks.length} saved</p>
+                  </div>
+                  <button onClick={() => setShowBookmarks(false)} className="text-gray-500 hover:text-gray-300 text-xl">×</button>
+                </div>
+
+                {storyBookmarks.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Bookmark className="w-12 h-12 mx-auto text-gray-700 mb-3" />
+                    <p className="text-gray-500 text-sm">No bookmarks yet</p>
+                    <p className="text-gray-600 text-xs mt-1">Click the bookmark icon to save your place</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {storyBookmarks.map(bookmark => (
+                      <div
+                        key={bookmark.id}
+                        className="p-3 border border-gray-800 rounded-lg hover:border-amber-500/30 transition-colors group"
+                      >
+                        <div className="flex justify-between items-start mb-2">
+                          <div>
+                            <span className="text-amber-500 font-bold">
+                              Chapter {bookmark.chapterNumber}
+                            </span>
+                            <p className="text-xs text-gray-600">
+                              {new Date(bookmark.createdAt).toLocaleDateString()}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => {
+                              storage.deleteBookmark(storyBible.storyId, bookmark.id);
+                              setStoryBookmarks(storage.getBookmarks(storyBible.storyId));
+                            }}
+                            className="opacity-0 group-hover:opacity-100 text-gray-600 hover:text-red-400 text-sm transition-opacity"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                        {bookmark.note && (
+                          <p className="text-gray-400 text-sm">{bookmark.note}</p>
+                        )}
+                        {bookmark.chapterNumber !== storyBible.currentChapter && (
+                          <p className="text-xs text-amber-500/50 mt-2">
+                            (Jump to chapter coming soon)
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Quick Add Bookmark */}
+                <div className="mt-6 pt-4 border-t border-gray-800">
+                  <button
+                    onClick={() => {
+                      const note = prompt('Add a note for this bookmark (optional):');
+                      storage.addBookmark(
+                        storyBible.storyId,
+                        storyBible.currentChapter,
+                        note || `Chapter ${storyBible.currentChapter}`
+                      );
+                      setStoryBookmarks(storage.getBookmarks(storyBible.storyId));
+                    }}
+                    className="w-full py-2 border border-amber-500/50 text-amber-500 hover:bg-amber-500 hover:text-gray-950 rounded text-sm transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Bookmark className="w-4 h-4" /> Bookmark Current Chapter
+                  </button>
                 </div>
               </div>
             </aside>
