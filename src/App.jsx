@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Save, Library, Globe, Upload, BookOpen, X, Settings, User, Sparkles, Play, ChevronRight, Heart, Brain, Home, Users, Zap } from 'lucide-react';
+import { Save, Library, Globe, Upload, BookOpen, X, Settings, User, Sparkles, Play, ChevronRight, Heart, Brain, Home, Users, Zap, Pencil, Archive, Bookmark, FolderPlus } from 'lucide-react';
 
 // Import author styles from iOS app (25+ writing styles)
 import { buildAuthorStylePrompt, getRandomAuthorForGenre } from './data/authorStyles.js';
@@ -1961,6 +1961,10 @@ export default function Loomiverse() {
   // User profile
   const [userProfile, setUserProfile] = useState(null);
 
+  // Character editing
+  const [editingCharacter, setEditingCharacter] = useState(null);
+  const [editForm, setEditForm] = useState({ name: '', role: '', notes: '' });
+
   // Settings
   const [primaryProvider, setPrimaryProvider] = useState('openai');
   const [openaiKey, setOpenaiKey] = useState('');
@@ -2056,6 +2060,38 @@ export default function Loomiverse() {
     setCharacters(storage.getCharacters());
     setSelectedCharacter(updatedCharacter);
     setSimulatingChildhood(false);
+  };
+
+  // Open character edit modal
+  const openCharacterEdit = (character) => {
+    setEditForm({
+      name: character.name || '',
+      role: character.role || '',
+      notes: character.notes || ''
+    });
+    setEditingCharacter(character);
+  };
+
+  // Save character edits
+  const saveCharacterEdit = () => {
+    if (!editingCharacter) return;
+
+    const updatedCharacter = {
+      ...editingCharacter,
+      name: editForm.name.trim() || editingCharacter.name,
+      role: editForm.role.trim() || editingCharacter.role,
+      notes: editForm.notes.trim()
+    };
+
+    storage.saveCharacter(updatedCharacter);
+    setCharacters(storage.getCharacters());
+
+    // Update selected character if it was the one being edited
+    if (selectedCharacter?.id === editingCharacter.id) {
+      setSelectedCharacter(updatedCharacter);
+    }
+
+    setEditingCharacter(null);
   };
 
   // Start story with character
@@ -2791,6 +2827,104 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
         </div>
       )}
 
+      {/* Character Edit Modal */}
+      {editingCharacter && (
+        <div className="fixed inset-0 z-50 bg-gray-950/95 flex items-center justify-center p-8">
+          <div className="bg-gray-900 border border-gray-800 rounded-lg max-w-lg w-full p-6">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                <Pencil className="w-5 h-5 text-amber-500" /> Edit Character
+              </h2>
+              <button onClick={() => setEditingCharacter(null)} className="text-gray-500 hover:text-gray-300">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Name */}
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Character Name</label>
+                <input
+                  type="text"
+                  value={editForm.name}
+                  onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                  placeholder="Enter name..."
+                  className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-gray-100 focus:border-amber-500 focus:outline-none"
+                />
+              </div>
+
+              {/* Role */}
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Role / Archetype</label>
+                <input
+                  type="text"
+                  value={editForm.role}
+                  onChange={(e) => setEditForm({ ...editForm, role: e.target.value })}
+                  placeholder="e.g., Protagonist, Mentor, Antagonist..."
+                  className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-gray-100 focus:border-amber-500 focus:outline-none"
+                />
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Personal Notes</label>
+                <textarea
+                  value={editForm.notes}
+                  onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                  placeholder="Add your own notes about this character..."
+                  rows={4}
+                  className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-gray-100 focus:border-amber-500 focus:outline-none resize-none"
+                />
+              </div>
+
+              {/* Character Info (Read-only) */}
+              <div className="p-3 bg-gray-800/50 rounded-lg text-sm">
+                <div className="text-xs text-amber-500 uppercase tracking-wide mb-2">Character Profile</div>
+                <div className="grid grid-cols-2 gap-2 text-gray-400">
+                  <div>
+                    <span className="text-gray-500">Ethnicity:</span>{' '}
+                    {editingCharacter.cultural_identity?.ethnicity}
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Era:</span>{' '}
+                    {editingCharacter.world?.era}
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Attachment:</span>{' '}
+                    <span className={
+                      editingCharacter.attachment?.attachment_style === 'secure' ? 'text-green-400' :
+                      editingCharacter.attachment?.attachment_style === 'disorganized' ? 'text-red-400' : 'text-yellow-400'
+                    }>
+                      {editingCharacter.attachment?.attachment_style}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Climate:</span>{' '}
+                    {editingCharacter.atmospheric_conditions?.emotional_climate}
+                  </div>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={() => setEditingCharacter(null)}
+                  className="flex-1 py-2 border border-gray-700 text-gray-400 hover:text-gray-200 rounded"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveCharacterEdit}
+                  className="flex-1 py-2 bg-amber-600 hover:bg-amber-500 text-gray-950 font-bold rounded"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* LANDING SCREEN */}
       {screen === 'landing' && (
         <div className="relative z-10 min-h-screen flex flex-col items-center justify-center p-8">
@@ -3101,8 +3235,14 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                           <Play className="w-4 h-4" /> Start Story
                         </button>
                         <button
-                          onClick={(e) => { 
-                            e.stopPropagation(); 
+                          onClick={(e) => { e.stopPropagation(); openCharacterEdit(char); }}
+                          className="px-4 py-2 border border-gray-600 text-gray-300 hover:border-amber-500 hover:text-amber-400 rounded flex items-center gap-2 text-sm"
+                        >
+                          <Pencil className="w-4 h-4" /> Edit
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
                             if (confirm('Delete this character?')) {
                               storage.deleteCharacter(char.id);
                               setCharacters(storage.getCharacters());
