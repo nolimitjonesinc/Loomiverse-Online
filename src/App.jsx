@@ -1848,6 +1848,76 @@ const GENRE_IMAGES = {
   action: 'action.png'
 };
 
+// Library theme definitions for personalized experience
+const LIBRARY_THEMES = {
+  ancientCastle: {
+    id: 'ancientCastle',
+    name: 'Ancient Castle',
+    icon: '🏰',
+    description: 'Stone walls, candlelight, leather-bound tomes',
+    bgPrimary: '#1a1410',
+    bgSecondary: '#2a2318',
+    accent: '#d4a574',
+    textPrimary: '#f4e9d9',
+    ambientGlow: 'rgba(212, 165, 116, 0.1)'
+  },
+  tronGrid: {
+    id: 'tronGrid',
+    name: 'TRON Grid',
+    icon: '💠',
+    description: 'Neon shelves, glowing spines, digital rain',
+    bgPrimary: '#000a14',
+    bgSecondary: '#001a2e',
+    accent: '#00d4ff',
+    textPrimary: '#e0f7ff',
+    ambientGlow: 'rgba(0, 212, 255, 0.15)'
+  },
+  cozyStudy: {
+    id: 'cozyStudy',
+    name: 'Cozy Study',
+    icon: '🔥',
+    description: 'Warm wood, fireplace, rain on windows',
+    bgPrimary: '#1a1512',
+    bgSecondary: '#2d2420',
+    accent: '#e8a862',
+    textPrimary: '#f5ebe0',
+    ambientGlow: 'rgba(232, 168, 98, 0.1)'
+  },
+  spaceStation: {
+    id: 'spaceStation',
+    name: 'Space Station',
+    icon: '🚀',
+    description: 'Floating holographic books, stars outside',
+    bgPrimary: '#0a0a15',
+    bgSecondary: '#12122a',
+    accent: '#7c8fff',
+    textPrimary: '#e0e4ff',
+    ambientGlow: 'rgba(124, 143, 255, 0.12)'
+  },
+  hiddenChamber: {
+    id: 'hiddenChamber',
+    name: 'Hidden Chamber',
+    icon: '🗝️',
+    description: 'Secret door, dusty tomes, mysterious lighting',
+    bgPrimary: '#120f18',
+    bgSecondary: '#1f1a28',
+    accent: '#9b7ebd',
+    textPrimary: '#e8e0f0',
+    ambientGlow: 'rgba(155, 126, 189, 0.12)'
+  },
+  modernMinimal: {
+    id: 'modernMinimal',
+    name: 'Modern Minimal',
+    icon: '◻️',
+    description: 'Clean white, floating shelves, zen',
+    bgPrimary: '#0f0f0f',
+    bgSecondary: '#1a1a1a',
+    accent: '#888888',
+    textPrimary: '#f0f0f0',
+    ambientGlow: 'rgba(136, 136, 136, 0.08)'
+  }
+};
+
 // ============================================
 // EXPANDED GENRES (26+ from iOS app)
 // Each genre has specific story formulas and author style matching
@@ -2087,6 +2157,9 @@ export default function Loomiverse() {
   const [selectedCollectionFilter, setSelectedCollectionFilter] = useState('all');
   const [showCollectionMenu, setShowCollectionMenu] = useState(null); // storyId or null
 
+  // Library Theme
+  const [libraryTheme, setLibraryTheme] = useState('ancientCastle');
+
   // Settings
   const [primaryProvider, setPrimaryProvider] = useState('openai');
   const [openaiKey, setOpenaiKey] = useState('');
@@ -2101,6 +2174,7 @@ export default function Loomiverse() {
     setOpenaiKey(storage.getApiKey('openai'));
     setAnthropicKey(storage.getApiKey('anthropic'));
     setPrimaryProvider(storage.getSetting('primaryProvider', 'openai'));
+    setLibraryTheme(storage.getSetting('libraryTheme', 'ancientCastle'));
     setUserProfile(storage.getUserProfile());
   }, []);
 
@@ -2109,6 +2183,7 @@ export default function Loomiverse() {
     storage.saveApiKey('openai', openaiKey);
     storage.saveApiKey('anthropic', anthropicKey);
     storage.saveSetting('primaryProvider', primaryProvider);
+    storage.saveSetting('libraryTheme', libraryTheme);
     setShowSettings(false);
   };
 
@@ -2863,12 +2938,29 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
   // RENDER
   // ============================================
   
+  // Get current theme
+  const currentTheme = LIBRARY_THEMES[libraryTheme] || LIBRARY_THEMES.ancientCastle;
+
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 font-serif">
-      {/* Background */}
-      <div className="fixed inset-0 z-0 bg-gradient-to-br from-rose-950/20 via-gray-950 to-amber-950/10">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-rose-900/10 rounded-full blur-3xl" />
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-amber-900/10 rounded-full blur-3xl" />
+    <div
+      className="min-h-screen text-gray-100 font-serif transition-colors duration-500"
+      style={{ backgroundColor: currentTheme.bgPrimary, color: currentTheme.textPrimary }}
+    >
+      {/* Themed Background */}
+      <div
+        className="fixed inset-0 z-0 transition-all duration-500"
+        style={{
+          background: `linear-gradient(135deg, ${currentTheme.bgPrimary} 0%, ${currentTheme.bgSecondary} 50%, ${currentTheme.bgPrimary} 100%)`
+        }}
+      >
+        <div
+          className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full blur-3xl transition-all duration-500"
+          style={{ backgroundColor: currentTheme.ambientGlow }}
+        />
+        <div
+          className="absolute bottom-1/4 right-1/4 w-96 h-96 rounded-full blur-3xl transition-all duration-500"
+          style={{ backgroundColor: currentTheme.ambientGlow }}
+        />
       </div>
 
       {/* Loading Overlay */}
@@ -2925,6 +3017,33 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                   placeholder="sk-ant-..."
                   className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-gray-100"
                 />
+              </div>
+
+              {/* Library Theme Selector */}
+              <div>
+                <label className="block text-sm text-gray-400 mb-2">Library Theme</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {Object.values(LIBRARY_THEMES).map(theme => (
+                    <button
+                      key={theme.id}
+                      onClick={() => setLibraryTheme(theme.id)}
+                      className={`p-3 rounded-lg border text-left transition-all ${
+                        libraryTheme === theme.id
+                          ? 'border-amber-500 bg-amber-500/10'
+                          : 'border-gray-700 hover:border-gray-600'
+                      }`}
+                      style={{
+                        backgroundColor: libraryTheme === theme.id ? undefined : theme.bgSecondary
+                      }}
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <span>{theme.icon}</span>
+                        <span className="font-medium text-sm">{theme.name}</span>
+                      </div>
+                      <p className="text-xs text-gray-500 line-clamp-1">{theme.description}</p>
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div className="opacity-50">
