@@ -1153,13 +1153,18 @@ class StorageManager {
     return d ? JSON.parse(d) : null;
   }
   
-  listStories() {
+  listStories(includeArchived = false) {
     const stories = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
       if (key?.startsWith(this.prefix + 'story_')) {
         try {
           const data = JSON.parse(localStorage.getItem(key));
+          const status = data.status || 'active';
+
+          // Filter out archived stories unless explicitly requested
+          if (!includeArchived && status === 'archived') continue;
+
           stories.push({
             id: key.replace(this.prefix + 'story_', ''),
             title: data.bible?.title || 'Untitled',
@@ -1169,14 +1174,41 @@ class StorageManager {
             progress: data.bible?.currentChapter || 0,
             totalChapters: data.bible?.totalChapters || 10,
             coverGradient: data.coverGradient || null,
-            protagonistName: data.bible?.protagonist?.name || null
+            protagonistName: data.bible?.protagonist?.name || null,
+            status: status
           });
         } catch (e) { /* skip invalid */ }
       }
     }
     return stories.sort((a, b) => new Date(b.lastPlayed) - new Date(a.lastPlayed));
   }
-  
+
+  listArchivedStories() {
+    return this.listStories(true).filter(s => s.status === 'archived');
+  }
+
+  archiveStory(id) {
+    const data = this.loadStory(id);
+    if (data) {
+      data.status = 'archived';
+      data.archivedAt = new Date().toISOString();
+      this.saveStory(id, data);
+      return true;
+    }
+    return false;
+  }
+
+  restoreStory(id) {
+    const data = this.loadStory(id);
+    if (data) {
+      data.status = 'active';
+      delete data.archivedAt;
+      this.saveStory(id, data);
+      return true;
+    }
+    return false;
+  }
+
   deleteStory(id) {
     localStorage.removeItem(this.prefix + 'story_' + id);
   }
@@ -1965,6 +1997,10 @@ export default function Loomiverse() {
   const [editingCharacter, setEditingCharacter] = useState(null);
   const [editForm, setEditForm] = useState({ name: '', role: '', notes: '' });
 
+  // Story archive
+  const [showArchivedStories, setShowArchivedStories] = useState(false);
+  const [archivedStories, setArchivedStories] = useState([]);
+
   // Settings
   const [primaryProvider, setPrimaryProvider] = useState('openai');
   const [openaiKey, setOpenaiKey] = useState('');
@@ -1974,6 +2010,7 @@ export default function Loomiverse() {
   useEffect(() => {
     setCharacters(storage.getCharacters());
     setSavedStories(storage.listStories());
+    setArchivedStories(storage.listArchivedStories());
     setOpenaiKey(storage.getApiKey('openai'));
     setAnthropicKey(storage.getApiKey('anthropic'));
     setPrimaryProvider(storage.getSetting('primaryProvider', 'openai'));
@@ -3270,115 +3307,191 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
           <button onClick={() => setScreen('landing')} className="mb-6 text-gray-500 hover:text-gray-300 flex items-center gap-2">
             ← Back to Home
           </button>
-          
-          <h2 className="text-3xl font-bold mb-2 flex items-center gap-3">
-            <BookOpen className="w-8 h-8 text-amber-500" />
-            My Stories
-          </h2>
-          <p className="text-gray-500 mb-8">Continue your adventures or start fresh</p>
-          
-          {savedStories.length === 0 ? (
-            <div className="text-center py-16">
-              <p className="text-gray-500 mb-4">No stories yet. Start your first adventure!</p>
+
+          <div className="flex justify-between items-start mb-8">
+            <div>
+              <h2 className="text-3xl font-bold mb-2 flex items-center gap-3">
+                <BookOpen className="w-8 h-8 text-amber-500" />
+                {showArchivedStories ? 'Archived Stories' : 'My Stories'}
+              </h2>
+              <p className="text-gray-500">
+                {showArchivedStories
+                  ? 'Stories you\'ve set aside for later'
+                  : 'Continue your adventures or start fresh'}
+              </p>
+            </div>
+            {(savedStories.length > 0 || archivedStories.length > 0) && (
               <button
-                onClick={() => setScreen('genre')}
-                className="px-6 py-3 border border-amber-500/50 text-amber-400 hover:bg-amber-500 hover:text-gray-950 transition-all"
+                onClick={() => setShowArchivedStories(!showArchivedStories)}
+                className={`px-4 py-2 rounded flex items-center gap-2 text-sm transition-all ${
+                  showArchivedStories
+                    ? 'bg-gray-700 text-gray-200'
+                    : 'border border-gray-700 text-gray-400 hover:border-gray-500'
+                }`}
               >
-                Begin New Story
+                <Archive className="w-4 h-4" />
+                {showArchivedStories
+                  ? `Active Stories (${savedStories.length})`
+                  : `Archived (${archivedStories.length})`}
               </button>
-            </div>
-          ) : (
-            <div className="grid gap-6 max-w-4xl">
-              {savedStories.map(story => {
-                // Generate or use existing gradient
-                const gradients = [
-                  'from-rose-600 to-purple-700',
-                  'from-amber-600 to-red-700',
-                  'from-emerald-600 to-cyan-700',
-                  'from-blue-600 to-indigo-700',
-                  'from-pink-600 to-rose-700',
-                  'from-violet-600 to-purple-700',
-                  'from-teal-600 to-emerald-700',
-                  'from-orange-600 to-amber-700'
-                ];
-                const gradientIndex = story.id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % gradients.length;
-                const gradient = story.coverGradient || gradients[gradientIndex];
-                
-                return (
-                  <div 
-                    key={story.id}
-                    className="flex gap-6 p-4 border border-gray-800 bg-gray-900/50 rounded-lg hover:border-gray-700 transition-all"
-                  >
-                    {/* Book Cover Placeholder */}
-                    <div className={`w-32 h-44 rounded-lg bg-gradient-to-br ${gradient} flex-shrink-0 flex flex-col justify-end p-3 shadow-lg`}>
-                      <h4 className="text-white font-bold text-sm leading-tight drop-shadow-lg">
-                        {story.title}
-                      </h4>
-                      <p className="text-white/70 text-xs mt-1">{story.genre}</p>
-                    </div>
-                    
-                    {/* Story Details */}
-                    <div className="flex-1 flex flex-col">
-                      <div className="flex-1">
-                        <h3 className="text-xl font-bold mb-1">{story.title}</h3>
-                        <p className="text-amber-500 text-sm mb-2">{story.genre}</p>
-                        
-                        {story.protagonistName && (
-                          <p className="text-gray-400 text-sm mb-2">
-                            <span className="text-gray-500">Protagonist:</span> {story.protagonistName}
-                          </p>
-                        )}
-                        
-                        {story.logline && (
-                          <p className="text-gray-500 text-sm italic line-clamp-2 mb-3">
-                            {story.logline}
-                          </p>
-                        )}
-                        
-                        {/* Progress Bar */}
-                        <div className="flex items-center gap-3 mb-2">
-                          <div className="flex-1 h-2 bg-gray-800 rounded-full overflow-hidden">
-                            <div 
-                              className="h-full bg-amber-500 transition-all"
-                              style={{ width: `${(story.progress / story.totalChapters) * 100}%` }}
-                            />
+            )}
+          </div>
+          
+          {(() => {
+            const displayStories = showArchivedStories ? archivedStories : savedStories;
+            const gradients = [
+              'from-rose-600 to-purple-700',
+              'from-amber-600 to-red-700',
+              'from-emerald-600 to-cyan-700',
+              'from-blue-600 to-indigo-700',
+              'from-pink-600 to-rose-700',
+              'from-violet-600 to-purple-700',
+              'from-teal-600 to-emerald-700',
+              'from-orange-600 to-amber-700'
+            ];
+
+            if (displayStories.length === 0) {
+              return (
+                <div className="text-center py-16">
+                  {showArchivedStories ? (
+                    <>
+                      <Archive className="w-16 h-16 text-gray-700 mx-auto mb-4" />
+                      <p className="text-gray-500 mb-4">No archived stories</p>
+                      <button
+                        onClick={() => setShowArchivedStories(false)}
+                        className="px-6 py-3 border border-gray-700 text-gray-400 hover:text-gray-200 transition-all"
+                      >
+                        View Active Stories
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-gray-500 mb-4">No stories yet. Start your first adventure!</p>
+                      <button
+                        onClick={() => setScreen('genre')}
+                        className="px-6 py-3 border border-amber-500/50 text-amber-400 hover:bg-amber-500 hover:text-gray-950 transition-all"
+                      >
+                        Begin New Story
+                      </button>
+                    </>
+                  )}
+                </div>
+              );
+            }
+
+            return (
+              <div className="grid gap-6 max-w-4xl">
+                {displayStories.map(story => {
+                  const gradientIndex = story.id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % gradients.length;
+                  const gradient = story.coverGradient || gradients[gradientIndex];
+
+                  return (
+                    <div
+                      key={story.id}
+                      className={`flex gap-6 p-4 border rounded-lg transition-all ${
+                        showArchivedStories
+                          ? 'border-gray-700 bg-gray-900/30 opacity-75 hover:opacity-100'
+                          : 'border-gray-800 bg-gray-900/50 hover:border-gray-700'
+                      }`}
+                    >
+                      {/* Book Cover Placeholder */}
+                      <div className={`w-32 h-44 rounded-lg bg-gradient-to-br ${gradient} flex-shrink-0 flex flex-col justify-end p-3 shadow-lg ${showArchivedStories ? 'grayscale-[30%]' : ''}`}>
+                        <h4 className="text-white font-bold text-sm leading-tight drop-shadow-lg">
+                          {story.title}
+                        </h4>
+                        <p className="text-white/70 text-xs mt-1">{story.genre}</p>
+                      </div>
+
+                      {/* Story Details */}
+                      <div className="flex-1 flex flex-col">
+                        <div className="flex-1">
+                          <h3 className="text-xl font-bold mb-1">{story.title}</h3>
+                          <p className="text-amber-500 text-sm mb-2">{story.genre}</p>
+
+                          {story.protagonistName && (
+                            <p className="text-gray-400 text-sm mb-2">
+                              <span className="text-gray-500">Protagonist:</span> {story.protagonistName}
+                            </p>
+                          )}
+
+                          {story.logline && (
+                            <p className="text-gray-500 text-sm italic line-clamp-2 mb-3">
+                              {story.logline}
+                            </p>
+                          )}
+
+                          {/* Progress Bar */}
+                          <div className="flex items-center gap-3 mb-2">
+                            <div className="flex-1 h-2 bg-gray-800 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-amber-500 transition-all"
+                                style={{ width: `${(story.progress / story.totalChapters) * 100}%` }}
+                              />
+                            </div>
+                            <span className="text-gray-500 text-sm">
+                              Ch {story.progress}/{story.totalChapters}
+                            </span>
                           </div>
-                          <span className="text-gray-500 text-sm">
-                            Ch {story.progress}/{story.totalChapters}
-                          </span>
+
+                          <p className="text-gray-600 text-xs">
+                            Last played: {new Date(story.lastPlayed).toLocaleDateString()}
+                          </p>
                         </div>
-                        
-                        <p className="text-gray-600 text-xs">
-                          Last played: {new Date(story.lastPlayed).toLocaleDateString()}
-                        </p>
-                      </div>
-                      
-                      {/* Actions */}
-                      <div className="flex gap-3 mt-4">
-                        <button
-                          onClick={() => loadStory(story.id)}
-                          className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-gray-950 font-bold rounded text-sm"
-                        >
-                          Continue
-                        </button>
-                        <button
-                          onClick={() => {
-                            if (confirm(`Delete "${story.title}"? This cannot be undone.`)) {
-                              storage.deleteStory(story.id);
-                              setSavedStories(storage.listStories());
-                            }
-                          }}
-                          className="px-4 py-2 border border-gray-700 text-gray-400 hover:border-red-500/50 hover:text-red-400 rounded text-sm"
-                        >
-                          Delete
-                        </button>
+
+                        {/* Actions - Different for archived vs active */}
+                        <div className="flex gap-3 mt-4">
+                          {showArchivedStories ? (
+                            <>
+                              <button
+                                onClick={() => {
+                                  storage.restoreStory(story.id);
+                                  setSavedStories(storage.listStories());
+                                  setArchivedStories(storage.listArchivedStories());
+                                }}
+                                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-gray-950 font-bold rounded text-sm"
+                              >
+                                Restore
+                              </button>
+                              <button
+                                onClick={() => {
+                                  if (confirm(`Permanently delete "${story.title}"? This cannot be undone.`)) {
+                                    storage.deleteStory(story.id);
+                                    setArchivedStories(storage.listArchivedStories());
+                                  }
+                                }}
+                                className="px-4 py-2 border border-red-800 text-red-400 hover:bg-red-900 rounded text-sm"
+                              >
+                                Delete Forever
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => loadStory(story.id)}
+                                className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-gray-950 font-bold rounded text-sm"
+                              >
+                                Continue
+                              </button>
+                              <button
+                                onClick={() => {
+                                  storage.archiveStory(story.id);
+                                  setSavedStories(storage.listStories());
+                                  setArchivedStories(storage.listArchivedStories());
+                                }}
+                                className="px-4 py-2 border border-gray-700 text-gray-400 hover:border-amber-500/50 hover:text-amber-400 rounded text-sm flex items-center gap-1"
+                              >
+                                <Archive className="w-3 h-3" /> Archive
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                  );
+                })}
+              </div>
+            );
+          })()}
           
           {/* Start New Story Button */}
           {savedStories.length > 0 && (
