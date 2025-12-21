@@ -1390,6 +1390,87 @@ class StorageManager {
 
     return newAchievements;
   }
+
+  // ============================================
+  // STORY COLLECTIONS (SHELVES)
+  // ============================================
+
+  getDefaultCollections() {
+    return [
+      { id: 'favorites', name: 'Favorites', icon: '❤️', storyIds: [], isDefault: true },
+      { id: 'reading', name: 'Currently Reading', icon: '📖', storyIds: [], isDefault: true },
+      { id: 'completed', name: 'Completed', icon: '✅', storyIds: [], isDefault: true }
+    ];
+  }
+
+  getCollections() {
+    const d = localStorage.getItem(this.prefix + 'collections');
+    if (d) {
+      return JSON.parse(d);
+    }
+    // Initialize with defaults
+    const defaults = this.getDefaultCollections();
+    this.saveCollections(defaults);
+    return defaults;
+  }
+
+  saveCollections(collections) {
+    localStorage.setItem(this.prefix + 'collections', JSON.stringify(collections));
+  }
+
+  createCollection(name, icon = '📚') {
+    const collections = this.getCollections();
+    const newCollection = {
+      id: `col_${Date.now()}`,
+      name,
+      icon,
+      storyIds: [],
+      isDefault: false,
+      createdAt: new Date().toISOString()
+    };
+    collections.push(newCollection);
+    this.saveCollections(collections);
+    return newCollection;
+  }
+
+  deleteCollection(collectionId) {
+    const collections = this.getCollections();
+    const filtered = collections.filter(c => c.id !== collectionId || c.isDefault);
+    this.saveCollections(filtered);
+  }
+
+  addToCollection(storyId, collectionId) {
+    const collections = this.getCollections();
+    const collection = collections.find(c => c.id === collectionId);
+    if (collection && !collection.storyIds.includes(storyId)) {
+      collection.storyIds.push(storyId);
+      this.saveCollections(collections);
+      return true;
+    }
+    return false;
+  }
+
+  removeFromCollection(storyId, collectionId) {
+    const collections = this.getCollections();
+    const collection = collections.find(c => c.id === collectionId);
+    if (collection) {
+      collection.storyIds = collection.storyIds.filter(id => id !== storyId);
+      this.saveCollections(collections);
+      return true;
+    }
+    return false;
+  }
+
+  getStoryCollections(storyId) {
+    const collections = this.getCollections();
+    return collections.filter(c => c.storyIds.includes(storyId));
+  }
+
+  getCollectionStories(collectionId) {
+    const collections = this.getCollections();
+    const collection = collections.find(c => c.id === collectionId);
+    return collection ? collection.storyIds : [];
+  }
 }
 
 // ============================================
@@ -2001,6 +2082,11 @@ export default function Loomiverse() {
   const [showArchivedStories, setShowArchivedStories] = useState(false);
   const [archivedStories, setArchivedStories] = useState([]);
 
+  // Collections (Shelves)
+  const [collections, setCollections] = useState([]);
+  const [selectedCollectionFilter, setSelectedCollectionFilter] = useState('all');
+  const [showCollectionMenu, setShowCollectionMenu] = useState(null); // storyId or null
+
   // Settings
   const [primaryProvider, setPrimaryProvider] = useState('openai');
   const [openaiKey, setOpenaiKey] = useState('');
@@ -2011,6 +2097,7 @@ export default function Loomiverse() {
     setCharacters(storage.getCharacters());
     setSavedStories(storage.listStories());
     setArchivedStories(storage.listArchivedStories());
+    setCollections(storage.getCollections());
     setOpenaiKey(storage.getApiKey('openai'));
     setAnthropicKey(storage.getApiKey('anthropic'));
     setPrimaryProvider(storage.getSetting('primaryProvider', 'openai'));
@@ -3336,9 +3423,50 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
               </button>
             )}
           </div>
-          
+
+          {/* Collection Filter Tabs - Only show for active stories */}
+          {!showArchivedStories && savedStories.length > 0 && (
+            <div className="flex gap-2 mb-6 flex-wrap">
+              <button
+                onClick={() => setSelectedCollectionFilter('all')}
+                className={`px-3 py-1.5 rounded-full text-sm transition-all ${
+                  selectedCollectionFilter === 'all'
+                    ? 'bg-amber-600 text-gray-950 font-bold'
+                    : 'border border-gray-700 text-gray-400 hover:border-gray-500'
+                }`}
+              >
+                All ({savedStories.length})
+              </button>
+              {collections.map(col => {
+                const count = col.storyIds.filter(id => savedStories.some(s => s.id === id)).length;
+                return (
+                  <button
+                    key={col.id}
+                    onClick={() => setSelectedCollectionFilter(col.id)}
+                    className={`px-3 py-1.5 rounded-full text-sm transition-all flex items-center gap-1 ${
+                      selectedCollectionFilter === col.id
+                        ? 'bg-amber-600 text-gray-950 font-bold'
+                        : 'border border-gray-700 text-gray-400 hover:border-gray-500'
+                    }`}
+                  >
+                    <span>{col.icon}</span> {col.name} ({count})
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           {(() => {
-            const displayStories = showArchivedStories ? archivedStories : savedStories;
+            let displayStories = showArchivedStories ? archivedStories : savedStories;
+
+            // Apply collection filter for active stories
+            if (!showArchivedStories && selectedCollectionFilter !== 'all') {
+              const collection = collections.find(c => c.id === selectedCollectionFilter);
+              if (collection) {
+                displayStories = displayStories.filter(s => collection.storyIds.includes(s.id));
+              }
+            }
+
             const gradients = [
               'from-rose-600 to-purple-700',
               'from-amber-600 to-red-700',
@@ -3436,10 +3564,28 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                           <p className="text-gray-600 text-xs">
                             Last played: {new Date(story.lastPlayed).toLocaleDateString()}
                           </p>
+
+                          {/* Collection Badges - Only for active stories */}
+                          {!showArchivedStories && (() => {
+                            const storyCollections = collections.filter(c => c.storyIds.includes(story.id));
+                            if (storyCollections.length === 0) return null;
+                            return (
+                              <div className="flex gap-1 mt-2 flex-wrap">
+                                {storyCollections.map(col => (
+                                  <span
+                                    key={col.id}
+                                    className="px-2 py-0.5 bg-gray-800 text-gray-400 text-xs rounded-full flex items-center gap-1"
+                                  >
+                                    {col.icon} {col.name}
+                                  </span>
+                                ))}
+                              </div>
+                            );
+                          })()}
                         </div>
 
                         {/* Actions - Different for archived vs active */}
-                        <div className="flex gap-3 mt-4">
+                        <div className="flex gap-3 mt-4 flex-wrap">
                           {showArchivedStories ? (
                             <>
                               <button
@@ -3472,6 +3618,50 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                               >
                                 Continue
                               </button>
+
+                              {/* Add to Collection Button */}
+                              <div className="relative">
+                                <button
+                                  onClick={() => setShowCollectionMenu(showCollectionMenu === story.id ? null : story.id)}
+                                  className="px-4 py-2 border border-gray-700 text-gray-400 hover:border-amber-500/50 hover:text-amber-400 rounded text-sm flex items-center gap-1"
+                                >
+                                  <FolderPlus className="w-3 h-3" /> Collections
+                                </button>
+
+                                {/* Collection Dropdown */}
+                                {showCollectionMenu === story.id && (
+                                  <div className="absolute top-full left-0 mt-1 bg-gray-900 border border-gray-700 rounded-lg shadow-xl z-20 min-w-48">
+                                    <div className="p-2 border-b border-gray-800 text-xs text-gray-500 uppercase tracking-wide">
+                                      Add to Collection
+                                    </div>
+                                    {collections.map(col => {
+                                      const isInCollection = col.storyIds.includes(story.id);
+                                      return (
+                                        <button
+                                          key={col.id}
+                                          onClick={() => {
+                                            if (isInCollection) {
+                                              storage.removeFromCollection(story.id, col.id);
+                                            } else {
+                                              storage.addToCollection(story.id, col.id);
+                                            }
+                                            setCollections(storage.getCollections());
+                                            setShowCollectionMenu(null);
+                                          }}
+                                          className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-gray-800 transition-colors ${
+                                            isInCollection ? 'text-amber-400' : 'text-gray-300'
+                                          }`}
+                                        >
+                                          <span>{col.icon}</span>
+                                          <span className="flex-1">{col.name}</span>
+                                          {isInCollection && <span className="text-xs">✓</span>}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+
                               <button
                                 onClick={() => {
                                   storage.archiveStory(story.id);
