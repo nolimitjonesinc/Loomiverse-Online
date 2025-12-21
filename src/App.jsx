@@ -3168,75 +3168,194 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
         </div>
       )}
 
-      {/* LANDING SCREEN */}
+      {/* LANDING SCREEN - Library Experience */}
       {screen === 'landing' && (
-        <div className="relative z-10 min-h-screen flex flex-col items-center justify-center p-8">
-          {/* Logo */}
-          <img
-            src="/images/logos/loomiverse-logo.png"
-            alt="Loomiverse"
-            className="w-28 h-28 mb-4 object-contain"
-          />
-          <h1 className="text-6xl md:text-7xl font-bold mb-2 bg-gradient-to-r from-gray-100 via-amber-400 to-gray-100 bg-clip-text text-transparent">
-            Loomiverse
-          </h1>
-          <p className="text-xl text-gray-400 italic mb-2">Where every choice weaves destiny</p>
-          <p className="text-xs text-gray-600 mb-8">Unified Story Engine • v4.0</p>
+        <div className="relative z-10 min-h-screen p-6 md:p-8">
+          {/* Top Bar */}
+          <div className="flex justify-between items-center mb-8">
+            <div className="flex items-center gap-3">
+              <img
+                src="/images/logos/loomiverse-logo.png"
+                alt="Loomiverse"
+                className="w-12 h-12 object-contain"
+              />
+              <div>
+                <h1
+                  className="text-2xl font-bold"
+                  style={{ color: currentTheme.accent }}
+                >
+                  Loomiverse
+                </h1>
+                <p className="text-xs opacity-50">{currentTheme.icon} {currentTheme.name} Library</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => setScreen('profile')}
+                className="opacity-60 hover:opacity-100 transition-opacity flex items-center gap-2"
+              >
+                <User className="w-4 h-4" />
+                <span className="hidden sm:inline text-sm">Profile</span>
+              </button>
+              <button
+                onClick={() => setShowSettings(true)}
+                className="opacity-60 hover:opacity-100 transition-opacity flex items-center gap-2"
+              >
+                <Settings className="w-4 h-4" />
+                <span className="hidden sm:inline text-sm">Settings</span>
+              </button>
+            </div>
+          </div>
 
-          {/* Main Actions */}
-          <div className="flex flex-col sm:flex-row gap-4 mb-8">
-            <button
-              onClick={() => setScreen('characters')}
-              className="px-8 py-4 border-2 border-amber-500 text-amber-400 hover:bg-amber-500 hover:text-gray-950 transition-all flex items-center gap-2"
-            >
-              <User className="w-5 h-5" /> Characters
-            </button>
-            <button
-              onClick={() => setScreen('genre')}
-              className="px-8 py-4 bg-gradient-to-r from-amber-600 to-amber-500 text-gray-950 font-bold hover:from-amber-500 hover:to-amber-400 transition-all flex items-center gap-2"
-            >
-              <Play className="w-5 h-5" /> New Story
-            </button>
+          {/* Main Content Grid */}
+          <div className="max-w-6xl mx-auto">
+            {/* Welcome Section */}
+            <div className="text-center mb-12">
+              <h2 className="text-4xl md:text-5xl font-bold mb-3">
+                Welcome to Your Library
+              </h2>
+              <p className="text-lg opacity-60 italic">Where every choice weaves destiny</p>
+            </div>
+
+            {/* Currently Reading Section */}
             {savedStories.length > 0 && (
+              <div className="mb-12">
+                <h3 className="text-xs uppercase tracking-widest mb-4 opacity-50 font-bold">
+                  📖 Continue Reading
+                </h3>
+                <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide">
+                  {savedStories.slice(0, 5).map(story => {
+                    const gradients = [
+                      'from-rose-600 to-purple-700',
+                      'from-amber-600 to-red-700',
+                      'from-emerald-600 to-cyan-700',
+                      'from-blue-600 to-indigo-700',
+                      'from-pink-600 to-rose-700'
+                    ];
+                    const gradientIndex = story.id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % gradients.length;
+                    const gradient = story.coverGradient || gradients[gradientIndex];
+
+                    return (
+                      <button
+                        key={story.id}
+                        onClick={() => loadStory(story.id)}
+                        className="flex-shrink-0 group"
+                      >
+                        <div className={`w-24 h-36 rounded-lg bg-gradient-to-br ${gradient} shadow-lg transform group-hover:scale-105 group-hover:-translate-y-2 transition-all duration-300 flex flex-col justify-end p-2 relative overflow-hidden`}>
+                          {/* Progress indicator */}
+                          <div className="absolute top-0 left-0 right-0 h-1 bg-black/30">
+                            <div
+                              className="h-full bg-white/70"
+                              style={{ width: `${(story.progress / story.totalChapters) * 100}%` }}
+                            />
+                          </div>
+                          <h4 className="text-white font-bold text-xs leading-tight drop-shadow-lg line-clamp-2">
+                            {story.title}
+                          </h4>
+                          <p className="text-white/60 text-[10px] mt-0.5">Ch {story.progress}/{story.totalChapters}</p>
+                        </div>
+                      </button>
+                    );
+                  })}
+
+                  {/* View All Button */}
+                  <button
+                    onClick={() => setScreen('stories')}
+                    className="flex-shrink-0 w-24 h-36 rounded-lg border-2 border-dashed opacity-40 hover:opacity-70 transition-opacity flex flex-col items-center justify-center"
+                    style={{ borderColor: currentTheme.accent }}
+                  >
+                    <Library className="w-6 h-6 mb-2" />
+                    <span className="text-xs">View All</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Action Cards Grid */}
+            <div className="grid md:grid-cols-3 gap-6 mb-12">
+              {/* New Story Card */}
+              <button
+                onClick={() => setScreen('genre')}
+                className="p-8 rounded-2xl border transition-all duration-300 hover:scale-[1.02] group text-left"
+                style={{
+                  borderColor: currentTheme.accent + '40',
+                  background: `linear-gradient(135deg, ${currentTheme.bgSecondary} 0%, transparent 100%)`
+                }}
+              >
+                <div
+                  className="w-14 h-14 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"
+                  style={{ backgroundColor: currentTheme.accent + '20' }}
+                >
+                  <Play className="w-7 h-7" style={{ color: currentTheme.accent }} />
+                </div>
+                <h3 className="text-xl font-bold mb-2">Begin New Story</h3>
+                <p className="text-sm opacity-50">Choose from 26 genres with unique story formulas</p>
+              </button>
+
+              {/* Characters Card */}
+              <button
+                onClick={() => setScreen('characters')}
+                className="p-8 rounded-2xl border transition-all duration-300 hover:scale-[1.02] group text-left"
+                style={{
+                  borderColor: currentTheme.accent + '40',
+                  background: `linear-gradient(135deg, ${currentTheme.bgSecondary} 0%, transparent 100%)`
+                }}
+              >
+                <div
+                  className="w-14 h-14 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"
+                  style={{ backgroundColor: currentTheme.accent + '20' }}
+                >
+                  <Users className="w-7 h-7" style={{ color: currentTheme.accent }} />
+                </div>
+                <h3 className="text-xl font-bold mb-2">Your Characters</h3>
+                <p className="text-sm opacity-50">
+                  {characters.length} character{characters.length !== 1 ? 's' : ''} with emergent psychology
+                </p>
+              </button>
+
+              {/* Library Card */}
               <button
                 onClick={() => setScreen('stories')}
-                className="px-8 py-4 border-2 border-blue-500 text-blue-400 hover:bg-blue-500 hover:text-gray-950 transition-all flex items-center gap-2"
+                className="p-8 rounded-2xl border transition-all duration-300 hover:scale-[1.02] group text-left"
+                style={{
+                  borderColor: currentTheme.accent + '40',
+                  background: `linear-gradient(135deg, ${currentTheme.bgSecondary} 0%, transparent 100%)`
+                }}
               >
-                <BookOpen className="w-5 h-5" /> My Stories
+                <div
+                  className="w-14 h-14 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"
+                  style={{ backgroundColor: currentTheme.accent + '20' }}
+                >
+                  <Library className="w-7 h-7" style={{ color: currentTheme.accent }} />
+                </div>
+                <h3 className="text-xl font-bold mb-2">Your Library</h3>
+                <p className="text-sm opacity-50">
+                  {savedStories.length} stor{savedStories.length !== 1 ? 'ies' : 'y'} • {collections.length} collections
+                </p>
               </button>
-            )}
-          </div>
+            </div>
 
-          {/* Stats */}
-          <div className="grid grid-cols-3 gap-8 text-center mb-8">
-            <button onClick={() => setScreen('characters')} className="hover:opacity-80 transition-opacity">
-              <div className="text-3xl font-bold text-amber-500">{characters.length}</div>
-              <div className="text-xs text-gray-500">Characters</div>
-            </button>
-            <button onClick={() => savedStories.length > 0 && setScreen('stories')} className="hover:opacity-80 transition-opacity">
-              <div className="text-3xl font-bold text-amber-500">{savedStories.length}</div>
-              <div className="text-xs text-gray-500">Stories</div>
-            </button>
-            <button onClick={() => setScreen('profile')} className="hover:opacity-80 transition-opacity">
-              <div className="text-3xl font-bold text-amber-500">{userProfile?.stats?.chaptersRead || 0}</div>
-              <div className="text-xs text-gray-500">Chapters</div>
-            </button>
-          </div>
-
-          {/* Bottom Actions */}
-          <div className="flex items-center gap-6">
-            <button
-              onClick={() => setScreen('profile')}
-              className="text-gray-500 hover:text-amber-500 flex items-center gap-2"
-            >
-              <User className="w-4 h-4" /> Profile
-            </button>
-            <button
-              onClick={() => setShowSettings(true)}
-              className="text-gray-500 hover:text-amber-500 flex items-center gap-2"
-            >
-              <Settings className="w-4 h-4" /> Settings
-            </button>
+            {/* Stats Footer */}
+            <div className="flex justify-center gap-12">
+              <div className="text-center">
+                <div className="text-3xl font-bold" style={{ color: currentTheme.accent }}>
+                  {userProfile?.stats?.storiesCreated || 0}
+                </div>
+                <div className="text-xs opacity-40 uppercase tracking-wide">Stories Created</div>
+              </div>
+              <div className="text-center">
+                <div className="text-3xl font-bold" style={{ color: currentTheme.accent }}>
+                  {userProfile?.stats?.chaptersRead || 0}
+                </div>
+                <div className="text-xs opacity-40 uppercase tracking-wide">Chapters Read</div>
+              </div>
+              <div className="text-center">
+                <div className="text-3xl font-bold" style={{ color: currentTheme.accent }}>
+                  {userProfile?.stats?.currentStreak || 0}
+                </div>
+                <div className="text-xs opacity-40 uppercase tracking-wide">Day Streak</div>
+              </div>
+            </div>
           </div>
         </div>
       )}
