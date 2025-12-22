@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Save, Library, Globe, Upload, BookOpen, X, Settings, User, Sparkles, Play, ChevronRight, Heart, Brain, Home, Users, Zap, Pencil, Archive, Bookmark, FolderPlus, MoreVertical, Trash2 } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Save, Library, Globe, Upload, BookOpen, X, Settings, User, Sparkles, Play, ChevronRight, Heart, Brain, Home, Users, Zap, Pencil, Archive, Bookmark, FolderPlus, MoreVertical, Trash2, MessageCircle, Send } from 'lucide-react';
 
 // Import author styles from iOS app (25+ writing styles)
 import { buildAuthorStylePrompt, getRandomAuthorForGenre } from './data/authorStyles.js';
@@ -2198,6 +2198,13 @@ export default function Loomiverse() {
   const [editingCharacter, setEditingCharacter] = useState(null);
   const [editForm, setEditForm] = useState({ name: '', role: '', notes: '' });
 
+  // Character Chat
+  const [chatCharacter, setChatCharacter] = useState(null); // Character object to chat with
+  const [chatMessages, setChatMessages] = useState([]); // Array of { role: 'user' | 'character', content: string }
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const chatEndRef = useRef(null); // Ref for auto-scrolling chat
+
   // Story archive
   const [showArchivedStories, setShowArchivedStories] = useState(false);
   const [archivedStories, setArchivedStories] = useState([]);
@@ -2250,6 +2257,13 @@ export default function Loomiverse() {
     document.addEventListener('click', handleClickOutside);
     return () => document.removeEventListener('click', handleClickOutside);
   }, [showStoryMenu]);
+
+  // Auto-scroll chat to bottom when new messages arrive
+  useEffect(() => {
+    if (chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [chatMessages, chatLoading]);
 
   // Save settings
   const saveSettings = () => {
@@ -2598,9 +2612,22 @@ Guidelines:
       }
     }
 
-    // Fallback - use roles as names
+    // Fallback - generate genre-appropriate default names
+    const fallbackNames = {
+      male: ['Marcus', 'Kael', 'Theron', 'Aldric', 'Caspian', 'Darius', 'Felix', 'Jasper', 'Orion', 'Silas', 'Viktor', 'Zephyr'],
+      female: ['Elara', 'Lyra', 'Seraphina', 'Nyla', 'Ravenna', 'Isolde', 'Celeste', 'Aurora', 'Freya', 'Sage', 'Vera', 'Wren']
+    };
+    const usedNames = new Set();
     const fallback = {};
-    characters.forEach(c => fallback[c.role] = c.role);
+
+    characters.forEach(c => {
+      const pool = c.sex === 'F' ? fallbackNames.female : fallbackNames.male;
+      const availableNames = pool.filter(n => !usedNames.has(n));
+      const name = availableNames[Math.floor(Math.random() * availableNames.length)] || c.role;
+      usedNames.add(name);
+      fallback[c.role] = name;
+    });
+
     return fallback;
   };
 
@@ -2660,6 +2687,90 @@ Guidelines:
 
     // Fallback only if no API - use role as name
     return role || 'Stranger';
+  };
+
+  // Character Chat - Send message and get response
+  const sendCharacterMessage = async (message) => {
+    if (!chatCharacter || !message.trim()) return;
+
+    // Add user message
+    const userMessage = { role: 'user', content: message.trim() };
+    setChatMessages(prev => [...prev, userMessage]);
+    setChatInput('');
+    setChatLoading(true);
+
+    const providers = primaryProvider === 'openai'
+      ? ['openai', 'anthropic']
+      : ['anthropic', 'openai'];
+
+    // Build character context
+    const charPsych = chatCharacter.psychology || chatCharacter;
+    const charName = chatCharacter.name || 'Unknown';
+
+    const systemPrompt = `You ARE ${charName}, a character from a story. Stay completely in character.
+
+CHARACTER PROFILE:
+Name: ${charName}
+Role: ${chatCharacter.role || 'character'}
+${charPsych.personality?.core_traits ? `Core Traits: ${charPsych.personality.core_traits.join(', ')}` : ''}
+${charPsych.psychology?.fears ? `Fears: ${charPsych.psychology.fears.join(', ')}` : ''}
+${charPsych.psychology?.desires ? `Desires: ${charPsych.psychology.desires.join(', ')}` : ''}
+${charPsych.speech_patterns ? `Speech Style: ${charPsych.speech_patterns.verbal_tics || 'natural'}` : ''}
+${charPsych.backstory ? `Background: ${charPsych.backstory}` : ''}
+
+CONVERSATION HISTORY:
+${chatMessages.slice(-10).map(m => `${m.role === 'user' ? 'Reader' : charName}: ${m.content}`).join('\n')}
+
+GUIDELINES:
+- Respond as ${charName} would - use their voice, mannerisms, perspective
+- Reference your character's experiences, fears, desires naturally
+- Be authentic to your personality (if guarded, be guarded; if warm, be warm)
+- Keep responses conversational, 1-3 paragraphs max
+- You can share secrets, hidden feelings, "deleted scenes" from your life
+- Remember: you're having a real conversation with a reader who knows your story`;
+
+    for (const providerKey of providers) {
+      const provider = AI_PROVIDERS[providerKey];
+
+      try {
+        const response = await fetch(provider.endpoint, {
+          method: 'POST',
+          headers: provider.formatHeaders(),
+          body: JSON.stringify(provider.formatRequest(systemPrompt, message))
+        });
+
+        if (!response.ok) continue;
+
+        const data = await response.json();
+        const text = provider.extractResponse(data);
+
+        if (text) {
+          setChatMessages(prev => [...prev, { role: 'character', content: text }]);
+          setChatLoading(false);
+          return;
+        }
+      } catch (e) {
+        console.error(`${providerKey} chat failed:`, e);
+        continue;
+      }
+    }
+
+    // Fallback response if API fails
+    setChatMessages(prev => [...prev, {
+      role: 'character',
+      content: `*${charName} pauses thoughtfully* I'm not quite sure how to respond to that right now...`
+    }]);
+    setChatLoading(false);
+  };
+
+  // Start chat with a character
+  const startCharacterChat = (character) => {
+    setChatCharacter(character);
+    setChatMessages([{
+      role: 'character',
+      content: `*${character.name || 'The character'} looks up as you approach* Oh, hello there. I didn't expect to see you here. What's on your mind?`
+    }]);
+    setScreen('characterChat');
   };
 
   const selectGenre = async (genre) => {
@@ -4876,6 +4987,21 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                               </div>
                             </div>
                           )}
+
+                          {/* Chat with Character Button */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              startCharacterChat({
+                                ...storyBible.protagonist,
+                                role: 'protagonist'
+                              });
+                            }}
+                            className="mt-4 w-full flex items-center justify-center gap-2 px-3 py-2 bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/30 rounded-lg text-amber-400 text-xs font-bold transition-colors"
+                          >
+                            <MessageCircle className="w-3 h-3" />
+                            Chat with {storyBible.protagonist.name}
+                          </button>
                         </div>
                       )}
                     </div>
@@ -4884,8 +5010,8 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
 
                 {/* Supporting Cast */}
                 <div className="mb-6">
-                  <h4 className="text-xs tracking-widest text-amber-500/70 uppercase mb-3 flex items-center gap-2">
-                    <span>👥</span> Cast ({Object.keys(storyBible.characters).filter(n => n !== storyBible.protagonist?.name).length})
+                  <h4 className="text-xs tracking-widest text-amber-500/70 uppercase mb-3">
+                    Cast ({Object.keys(storyBible.characters).filter(n => n !== storyBible.protagonist?.name).length})
                   </h4>
                   <div className="space-y-2">
                     {Object.values(storyBible.characters)
@@ -4909,23 +5035,38 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                           )}
                           
                           {/* Expanded NPC Profile */}
-                          {expandedCharacter === c.name && c.psychology && (
+                          {expandedCharacter === c.name && (
                             <div className="mt-3 pt-2 border-t border-gray-800 text-xs space-y-2">
-                              <div className="flex gap-2">
-                                <span className={`px-1.5 py-0.5 rounded ${
-                                  c.psychology.attachment_style === 'secure' ? 'bg-green-900/50 text-green-400' :
-                                  c.psychology.attachment_style === 'disorganized' ? 'bg-red-900/50 text-red-400' : 
-                                  'bg-yellow-900/50 text-yellow-400'
-                                }`}>
-                                  {c.psychology.attachment_style}
-                                </span>
-                                {c.psychology.emotional_climate && (
-                                  <span className="text-gray-500">{c.psychology.emotional_climate} upbringing</span>
-                                )}
-                              </div>
-                              {c.psychology.cultural_identity && (
-                                <div className="text-gray-500">{c.psychology.cultural_identity}</div>
+                              {c.psychology && (
+                                <>
+                                  <div className="flex gap-2">
+                                    <span className={`px-1.5 py-0.5 rounded ${
+                                      c.psychology.attachment_style === 'secure' ? 'bg-green-900/50 text-green-400' :
+                                      c.psychology.attachment_style === 'disorganized' ? 'bg-red-900/50 text-red-400' :
+                                      'bg-yellow-900/50 text-yellow-400'
+                                    }`}>
+                                      {c.psychology.attachment_style}
+                                    </span>
+                                    {c.psychology.emotional_climate && (
+                                      <span className="text-gray-500">{c.psychology.emotional_climate} upbringing</span>
+                                    )}
+                                  </div>
+                                  {c.psychology.cultural_identity && (
+                                    <div className="text-gray-500">{c.psychology.cultural_identity}</div>
+                                  )}
+                                </>
                               )}
+                              {/* Chat with Character Button */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  startCharacterChat(c);
+                                }}
+                                className="mt-2 w-full flex items-center justify-center gap-2 px-3 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-gray-300 text-xs transition-colors"
+                              >
+                                <MessageCircle className="w-3 h-3" />
+                                Chat with {c.name}
+                              </button>
                             </div>
                           )}
                         </div>
@@ -5056,6 +5197,90 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
               </div>
             </aside>
           )}
+        </div>
+      )}
+
+      {/* CHARACTER CHAT SCREEN */}
+      {screen === 'characterChat' && chatCharacter && (
+        <div className="h-screen bg-gradient-to-b from-gray-950 via-gray-900 to-gray-950 flex flex-col">
+          {/* Header */}
+          <header className="flex items-center justify-between px-6 py-4 border-b border-gray-800 bg-gray-900/80 backdrop-blur-sm">
+            <button
+              onClick={() => {
+                setScreen('landing');
+                setChatCharacter(null);
+                setChatMessages([]);
+              }}
+              className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors"
+            >
+              <Home className="w-4 h-4" />
+              <span className="text-sm">Library</span>
+            </button>
+            <div className="text-center">
+              <h1 className="text-lg font-bold text-white">{chatCharacter.name || 'Character'}</h1>
+              <p className="text-xs text-amber-500">{chatCharacter.role || 'Story Character'}</p>
+            </div>
+            <div className="w-16" /> {/* Spacer for alignment */}
+          </header>
+
+          {/* Chat Messages */}
+          <div className="flex-1 overflow-y-auto p-6 space-y-4 relative z-10 bg-gray-950/50">
+            {chatMessages.map((msg, i) => (
+              <div
+                key={i}
+                className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+              >
+                <div
+                  className={`max-w-[80%] px-4 py-3 rounded-2xl ${
+                    msg.role === 'user'
+                      ? 'bg-amber-600 text-gray-950'
+                      : 'bg-gray-800 text-gray-200'
+                  }`}
+                >
+                  {msg.role === 'character' && (
+                    <p className="text-xs text-amber-500 mb-1 font-bold">{chatCharacter.name}</p>
+                  )}
+                  <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                </div>
+              </div>
+            ))}
+            {chatLoading && (
+              <div className="flex justify-start">
+                <div className="bg-gray-800 text-gray-400 px-4 py-3 rounded-2xl">
+                  <p className="text-xs text-amber-500 mb-1 font-bold">{chatCharacter.name}</p>
+                  <p className="text-sm italic">thinking...</p>
+                </div>
+              </div>
+            )}
+            <div ref={chatEndRef} /> {/* Scroll anchor */}
+          </div>
+
+          {/* Input */}
+          <div className="p-4 border-t border-gray-800 bg-gray-900/80 backdrop-blur-sm">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                sendCharacterMessage(chatInput);
+              }}
+              className="flex gap-3"
+            >
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder={`Message ${chatCharacter.name}...`}
+                className="flex-1 px-4 py-3 bg-gray-800 border border-gray-700 rounded-full text-white placeholder-gray-500 focus:border-amber-500/50 focus:outline-none transition-colors"
+                disabled={chatLoading}
+              />
+              <button
+                type="submit"
+                disabled={chatLoading || !chatInput.trim()}
+                className="p-3 bg-amber-600 hover:bg-amber-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-gray-950 rounded-full transition-colors"
+              >
+                <Send className="w-5 h-5" />
+              </button>
+            </form>
+          </div>
         </div>
       )}
 
