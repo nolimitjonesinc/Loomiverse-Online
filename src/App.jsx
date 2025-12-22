@@ -3158,7 +3158,6 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                       }}
                     >
                       <div className="flex items-center gap-2 mb-1">
-                        <span>{theme.icon}</span>
                         <span className="font-medium text-sm">{theme.name}</span>
                       </div>
                       <p className="text-xs text-gray-500 line-clamp-1">{theme.description}</p>
@@ -3307,7 +3306,7 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                 >
                   Loomiverse
                 </h1>
-                <p className="text-xs opacity-50">{currentTheme.icon} {currentTheme.name} Library</p>
+                <p className="text-xs opacity-50">{currentTheme.name} Library</p>
               </div>
             </div>
             <div className="flex items-center gap-4">
@@ -3809,7 +3808,7 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                         : 'border border-gray-700 text-gray-400 hover:border-gray-500'
                     }`}
                   >
-                    <span>{col.icon}</span> {col.name} ({count})
+                    {col.name} ({count})
                   </button>
                 );
               })}
@@ -3936,7 +3935,7 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                                     key={col.id}
                                     className="px-2 py-0.5 bg-gray-800 text-gray-400 text-xs rounded-full flex items-center gap-1"
                                   >
-                                    {col.icon} {col.name}
+                                    {col.name}
                                   </span>
                                 ))}
                               </div>
@@ -4012,9 +4011,8 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                                             isInCollection ? 'text-amber-400' : 'text-gray-300'
                                           }`}
                                         >
-                                          <span>{col.icon}</span>
                                           <span className="flex-1">{col.name}</span>
-                                          {isInCollection && <span className="text-xs">✓</span>}
+                                          {isInCollection && <span className="text-xs text-amber-400">Added</span>}
                                         </button>
                                       );
                                     })}
@@ -4108,7 +4106,7 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                 {storage.getFavoriteGenres().length > 0 ? (
                   storage.getFavoriteGenres().map(genreKey => (
                     <div key={genreKey} className="px-4 py-2 border border-amber-500/50 bg-amber-500/10 rounded-full text-amber-400">
-                      {genres[genreKey]?.icon} {genres[genreKey]?.name || genreKey}
+                      {genres[genreKey]?.name || genreKey}
                     </div>
                   ))
                 ) : (
@@ -4132,7 +4130,7 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                           : 'border-gray-800 bg-gray-900/30 opacity-50'
                       }`}
                     >
-                      <div className="text-2xl mb-2">{unlocked ? achievement.icon : '🔒'}</div>
+                      <div className={`text-xs uppercase tracking-widest mb-2 ${unlocked ? 'text-amber-500' : 'text-gray-600'}`}>{unlocked ? 'Unlocked' : 'Locked'}</div>
                       <div className={`font-bold text-sm ${unlocked ? 'text-amber-400' : 'text-gray-600'}`}>
                         {achievement.name}
                       </div>
@@ -4234,14 +4232,12 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                           />
                           <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-950/60 to-transparent" />
                           <div className="absolute bottom-0 left-0 right-0 p-3 z-10">
-                            <span className="text-2xl drop-shadow-lg">{genre.icon}</span>
                             <h4 className="font-bold text-sm text-white drop-shadow-lg">{genre.name}</h4>
                           </div>
                         </>
                       ) : (
                         <>
-                          <span className="text-2xl block mb-2">{genre.icon}</span>
-                          <h4 className="font-bold text-sm">{genre.name}</h4>
+                          <h4 className="font-bold text-sm py-2">{genre.name}</h4>
                         </>
                       )}
                     </button>
@@ -4274,14 +4270,12 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                           />
                           <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-950/60 to-transparent" />
                           <div className="absolute bottom-0 left-0 right-0 p-3 z-10">
-                            <span className="text-2xl drop-shadow-lg">{genre.icon}</span>
                             <h4 className="font-bold text-sm text-white drop-shadow-lg">{genre.name}</h4>
                           </div>
                         </>
                       ) : (
                         <>
-                          <span className="text-2xl block mb-2">{genre.icon}</span>
-                          <h4 className="font-bold text-sm">{genre.name}</h4>
+                          <h4 className="font-bold text-sm py-2">{genre.name}</h4>
                         </>
                       )}
                     </button>
@@ -4314,14 +4308,12 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                           />
                           <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-950/60 to-transparent" />
                           <div className="absolute bottom-0 left-0 right-0 p-3 z-10">
-                            <span className="text-2xl drop-shadow-lg">{genre.icon}</span>
                             <h4 className="font-bold text-sm text-white drop-shadow-lg">{genre.name}</h4>
                           </div>
                         </>
                       ) : (
                         <>
-                          <span className="text-2xl block mb-2">{genre.icon}</span>
-                          <h4 className="font-bold text-sm">{genre.name}</h4>
+                          <h4 className="font-bold text-sm py-2">{genre.name}</h4>
                         </>
                       )}
                     </button>
@@ -4354,14 +4346,12 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                           />
                           <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-950/60 to-transparent" />
                           <div className="absolute bottom-0 left-0 right-0 p-3 z-10">
-                            <span className="text-2xl drop-shadow-lg">{genre.icon}</span>
                             <h4 className="font-bold text-sm text-white drop-shadow-lg">{genre.name}</h4>
                           </div>
                         </>
                       ) : (
                         <>
-                          <span className="text-2xl block mb-2">{genre.icon}</span>
-                          <h4 className="font-bold text-sm">{genre.name}</h4>
+                          <h4 className="font-bold text-sm py-2">{genre.name}</h4>
                         </>
                       )}
                     </button>
@@ -4394,14 +4384,12 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                           />
                           <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-950/60 to-transparent" />
                           <div className="absolute bottom-0 left-0 right-0 p-3 z-10">
-                            <span className="text-2xl drop-shadow-lg">{genre.icon}</span>
                             <h4 className="font-bold text-sm text-white drop-shadow-lg">{genre.name}</h4>
                           </div>
                         </>
                       ) : (
                         <>
-                          <span className="text-2xl block mb-2">{genre.icon}</span>
-                          <h4 className="font-bold text-sm">{genre.name}</h4>
+                          <h4 className="font-bold text-sm py-2">{genre.name}</h4>
                         </>
                       )}
                     </button>
@@ -4422,7 +4410,7 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
           
           <div className="text-center max-w-3xl w-full">
             <div className="text-amber-500 text-sm tracking-widest uppercase mb-4">
-              {genres[selectedGenre]?.icon} {genres[selectedGenre]?.name}
+              {genres[selectedGenre]?.name}
             </div>
             
             <h2 className="text-3xl font-bold mb-6">Your Story Awaits</h2>
@@ -4691,8 +4679,8 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                 {/* Protagonist Section */}
                 {storyBible.protagonist && (
                   <div className="mb-6">
-                    <h4 className="text-xs tracking-widest text-amber-500/70 uppercase mb-3 flex items-center gap-2">
-                      <span>⭐</span> Protagonist
+                    <h4 className="text-xs tracking-widest text-amber-500/70 uppercase mb-3">
+                      Protagonist
                     </h4>
                     <div 
                       className="p-3 border border-amber-500/30 bg-amber-500/5 rounded-lg cursor-pointer hover:bg-amber-500/10 transition-colors"
@@ -4824,8 +4812,8 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
 
                 {/* World Facts */}
                 <div className="mb-6">
-                  <h4 className="text-xs tracking-widest text-amber-500/70 uppercase mb-3 flex items-center gap-2">
-                    <span>🌍</span> World Facts
+                  <h4 className="text-xs tracking-widest text-amber-500/70 uppercase mb-3">
+                    World Facts
                   </h4>
                   {storyBible.worldFacts.filter(f => f.importance === 'critical').length === 0 ? (
                     <p className="text-sm text-gray-600 italic">World details will emerge...</p>
@@ -4843,8 +4831,8 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
 
                 {/* Your Choices */}
                 <div>
-                  <h4 className="text-xs tracking-widest text-amber-500/70 uppercase mb-3 flex items-center gap-2">
-                    <span>🎭</span> Your Choices
+                  <h4 className="text-xs tracking-widest text-amber-500/70 uppercase mb-3">
+                    Your Choices
                   </h4>
                   {storyBible.choiceHistory.length === 0 ? (
                     <p className="text-sm text-gray-600 italic">Your decisions shape the story...</p>
