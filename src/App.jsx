@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Save, Library, Globe, Upload, BookOpen, X, Settings, User, Sparkles, Play, ChevronRight, Heart, Brain, Home, Users, Zap, Pencil, Archive, Bookmark, FolderPlus } from 'lucide-react';
+import { Save, Library, Globe, Upload, BookOpen, X, Settings, User, Sparkles, Play, ChevronRight, Heart, Brain, Home, Users, Zap, Pencil, Archive, Bookmark, FolderPlus, MoreVertical, Trash2 } from 'lucide-react';
 
 // Import author styles from iOS app (25+ writing styles)
 import { buildAuthorStylePrompt, getRandomAuthorForGenre } from './data/authorStyles.js';
@@ -2205,7 +2205,7 @@ export default function Loomiverse() {
   // Collections (Shelves)
   const [collections, setCollections] = useState([]);
   const [selectedCollectionFilter, setSelectedCollectionFilter] = useState('all');
-  const [showCollectionMenu, setShowCollectionMenu] = useState(null); // storyId or null
+  const [showStoryMenu, setShowStoryMenu] = useState(null); // storyId or null for three-dot menu
 
   // Library Theme
   const [libraryTheme, setLibraryTheme] = useState('ancientCastle');
@@ -3978,58 +3978,79 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                                 Continue
                               </button>
 
-                              {/* Add to Collection Button */}
+                              {/* Three-dot Menu */}
                               <div className="relative">
                                 <button
-                                  onClick={() => setShowCollectionMenu(showCollectionMenu === story.id ? null : story.id)}
-                                  className="px-4 py-2 border border-gray-700 text-gray-400 hover:border-amber-500/50 hover:text-amber-400 rounded text-sm flex items-center gap-1"
+                                  onClick={() => setShowStoryMenu(showStoryMenu === story.id ? null : story.id)}
+                                  className="p-2 border border-gray-700 text-gray-400 hover:border-gray-500 hover:text-gray-300 rounded transition-colors"
                                 >
-                                  <FolderPlus className="w-3 h-3" /> Collections
+                                  <MoreVertical className="w-4 h-4" />
                                 </button>
 
-                                {/* Collection Dropdown */}
-                                {showCollectionMenu === story.id && (
-                                  <div className="absolute top-full left-0 mt-1 bg-gray-900 border border-gray-700 rounded-lg shadow-xl z-20 min-w-48">
-                                    <div className="p-2 border-b border-gray-800 text-xs text-gray-500 uppercase tracking-wide">
-                                      Add to Collection
+                                {/* Story Actions Dropdown */}
+                                {showStoryMenu === story.id && (
+                                  <div className="absolute top-full right-0 mt-1 bg-gray-900 border border-gray-700 rounded-lg shadow-xl z-20 min-w-48 overflow-hidden">
+                                    {/* Collections Submenu */}
+                                    <div className="border-b border-gray-800">
+                                      <div className="px-3 py-2 text-xs text-gray-500 uppercase tracking-wide">
+                                        Collections
+                                      </div>
+                                      {collections.map(col => {
+                                        const isInCollection = col.storyIds.includes(story.id);
+                                        return (
+                                          <button
+                                            key={col.id}
+                                            onClick={() => {
+                                              if (isInCollection) {
+                                                storage.removeFromCollection(story.id, col.id);
+                                              } else {
+                                                storage.addToCollection(story.id, col.id);
+                                              }
+                                              setCollections(storage.getCollections());
+                                            }}
+                                            className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-gray-800 transition-colors ${
+                                              isInCollection ? 'text-amber-400' : 'text-gray-300'
+                                            }`}
+                                          >
+                                            <FolderPlus className="w-3 h-3" />
+                                            <span className="flex-1">{col.name}</span>
+                                            {isInCollection && <span className="text-xs text-amber-400">Added</span>}
+                                          </button>
+                                        );
+                                      })}
                                     </div>
-                                    {collections.map(col => {
-                                      const isInCollection = col.storyIds.includes(story.id);
-                                      return (
-                                        <button
-                                          key={col.id}
-                                          onClick={() => {
-                                            if (isInCollection) {
-                                              storage.removeFromCollection(story.id, col.id);
-                                            } else {
-                                              storage.addToCollection(story.id, col.id);
-                                            }
-                                            setCollections(storage.getCollections());
-                                            setShowCollectionMenu(null);
-                                          }}
-                                          className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-gray-800 transition-colors ${
-                                            isInCollection ? 'text-amber-400' : 'text-gray-300'
-                                          }`}
-                                        >
-                                          <span className="flex-1">{col.name}</span>
-                                          {isInCollection && <span className="text-xs text-amber-400">Added</span>}
-                                        </button>
-                                      );
-                                    })}
+
+                                    {/* Archive */}
+                                    <button
+                                      onClick={() => {
+                                        storage.archiveStory(story.id);
+                                        setSavedStories(storage.listStories());
+                                        setArchivedStories(storage.listArchivedStories());
+                                        setShowStoryMenu(null);
+                                      }}
+                                      className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-gray-800 transition-colors text-gray-300"
+                                    >
+                                      <Archive className="w-3 h-3" />
+                                      <span>Archive</span>
+                                    </button>
+
+                                    {/* Delete */}
+                                    <button
+                                      onClick={() => {
+                                        if (confirm(`Delete "${story.title}"? This cannot be undone.`)) {
+                                          storage.deleteStory(story.id);
+                                          setSavedStories(storage.listStories());
+                                          setShowStoryMenu(null);
+                                        }
+                                      }}
+                                      className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-red-900/50 transition-colors text-red-400"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                      <span>Delete</span>
+                                    </button>
                                   </div>
                                 )}
                               </div>
-
-                              <button
-                                onClick={() => {
-                                  storage.archiveStory(story.id);
-                                  setSavedStories(storage.listStories());
-                                  setArchivedStories(storage.listArchivedStories());
-                                }}
-                                className="px-4 py-2 border border-gray-700 text-gray-400 hover:border-amber-500/50 hover:text-amber-400 rounded text-sm flex items-center gap-1"
-                              >
-                                <Archive className="w-3 h-3" /> Archive
-                              </button>
                             </>
                           )}
                         </div>
