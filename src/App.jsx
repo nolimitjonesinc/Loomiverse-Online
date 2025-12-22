@@ -4007,9 +4007,11 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                             </span>
                           </div>
 
-                          <p className="text-gray-600 text-xs">
-                            Last played: {new Date(story.lastPlayed).toLocaleDateString()}
-                          </p>
+                          <div className="flex items-center gap-3 text-gray-600 text-xs">
+                            <span>Last played: {new Date(story.lastPlayed).toLocaleDateString()}</span>
+                            <span className="text-gray-700">•</span>
+                            <span>{Math.max(1, Math.round((story.totalChapters - story.progress) * 7))} min left</span>
+                          </div>
 
                           {/* Collection Badges - Only for active stories */}
                           {!showArchivedStories && (() => {
@@ -4685,6 +4687,10 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                 </div>
                 <span className="text-gray-500 text-xs">
                   {storyBible.currentChapter}/{storyBible.totalChapters}
+                </span>
+                <span className="text-gray-700 text-xs mx-2">•</span>
+                <span className="text-gray-500 text-xs">
+                  ~{Math.max(1, Math.round(chapterData.content?.split(/\s+/).length / 200 || 7))} min read
                 </span>
               </div>
             </div>
