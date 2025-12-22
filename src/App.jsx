@@ -2144,6 +2144,24 @@ const genres = {
 // SECTION 8: MAIN REACT COMPONENT
 // ============================================
 
+// Helper function to get genre-responsive reading background class
+const getReadingBackgroundClass = (genre) => {
+  if (!genre) return 'reading-bg';
+  const genreLower = genre.toLowerCase();
+
+  // Map genres to CSS classes
+  if (genreLower.includes('fantasy') || genreLower.includes('epic')) return 'reading-bg reading-bg-fantasy';
+  if (genreLower.includes('noir') || genreLower.includes('crime')) return 'reading-bg reading-bg-noir';
+  if (genreLower.includes('sci') || genreLower.includes('cyber') || genreLower.includes('70s sci')) return 'reading-bg reading-bg-scifi';
+  if (genreLower.includes('horror') || genreLower.includes('gothic')) return 'reading-bg reading-bg-horror';
+  if (genreLower.includes('romance') || genreLower.includes('romantic')) return 'reading-bg reading-bg-romance';
+  if (genreLower.includes('mystery') || genreLower.includes('thriller')) return 'reading-bg reading-bg-mystery';
+  if (genreLower.includes('historical') || genreLower.includes('western')) return 'reading-bg reading-bg-historical';
+  if (genreLower.includes('thriller') || genreLower.includes('action')) return 'reading-bg reading-bg-thriller';
+
+  return 'reading-bg';
+};
+
 export default function Loomiverse() {
   // Core state
   const [screen, setScreen] = useState('landing');
@@ -2336,18 +2354,38 @@ export default function Loomiverse() {
   };
 
   // Select genre and story
-  // Generate unique story premise via AI
+  // Generate unique story premise via AI - NOW USES AUTHOR STYLES!
   const generatePremise = async (genre) => {
     const genreData = genres[genre];
-    const providers = primaryProvider === 'openai' 
-      ? ['openai', 'anthropic'] 
+    const providers = primaryProvider === 'openai'
+      ? ['openai', 'anthropic']
       : ['anthropic', 'openai'];
-    
-    const systemPrompt = `You are a creative story generator. Generate a unique, compelling story premise for a ${genreData.name} story.
+
+    // SELECT AUTHOR STYLE FIRST - This is the key fix!
+    const author = getRandomAuthorForGenre(genreData.name);
+    const authorGuidance = author?.description
+      ? `\n\nYou are channeling the creative spirit of ${author.name}. ${author.description}\n\nLet this author's sensibilities influence the TYPE of story you create - their themes, their concerns, their unique perspective on the genre.`
+      : '';
+
+    const systemPrompt = `You are a master storyteller creating a ${genreData.name} story premise.${authorGuidance}
 
 ${genreData.prompt}
 
-Create something FRESH and ORIGINAL - not a rehash of existing stories. The premise should be specific enough to be intriguing but open enough to allow for branching narratives.
+CRITICAL: Create something FRESH, UNEXPECTED, and ORIGINAL. Avoid these overused tropes:
+- Memory manipulation/selling memories
+- Digital consciousness/uploaded minds
+- Chosen one prophecies
+- Love triangles
+- Amnesia plots
+- "It was all a dream"
+
+Instead, find a UNIQUE angle. Consider:
+- Unusual protagonists (not the typical hero)
+- Unexpected settings within the genre
+- Fresh conflicts that haven't been done to death
+- Subverted expectations
+
+The premise should be specific enough to be intriguing but open enough to allow for branching narratives.
 
 Output ONLY valid JSON:
 {
@@ -2369,11 +2407,14 @@ Output ONLY valid JSON:
 
         const data = await response.json();
         const text = provider.extractResponse(data);
-        
+
         if (text) {
           const jsonMatch = text.match(/\{[\s\S]*\}/);
           if (jsonMatch) {
-            return JSON.parse(jsonMatch[0]);
+            const premise = JSON.parse(jsonMatch[0]);
+            // Return the author along with the premise so it stays consistent
+            premise.author = author;
+            return premise;
           }
         }
       } catch (e) {
@@ -2391,12 +2432,15 @@ Output ONLY valid JSON:
       horror: { title: 'The Watching Hours', logline: 'Every night at 3:33 AM, something in the house moves—and it\'s been getting closer to the bedroom door.' },
       literary: { title: 'The Space Between Us', logline: 'Two estranged siblings return home to sort their late mother\'s possessions and discover a secret that rewrites their entire childhood.' }
     };
-    return fallbackPremises[genre] || fallbackPremises.literary;
+    const fallback = fallbackPremises[genre] || fallbackPremises.literary;
+    fallback.author = author; // Include author even in fallback
+    return fallback;
   };
 
   // Generate story outline (ported from iOS app)
   // This creates a roadmap before Chapter 1 for better narrative structure
-  const generateOutline = async (genre, title, logline) => {
+  // NOW USES AUTHOR STYLE for consistent voice throughout planning!
+  const generateOutline = async (genre, title, logline, author = null) => {
     const genreData = genres[genre];
     const formula = genreData?.formula || [];
 
@@ -2404,8 +2448,13 @@ Output ONLY valid JSON:
       ? ['openai', 'anthropic']
       : ['anthropic', 'openai'];
 
-    const systemPrompt = `You are a master story architect. Create a detailed chapter-by-chapter outline for a 10-chapter ${genreData.name} story.
+    // Include author style in outline generation for consistent storytelling approach
+    const authorGuidance = author?.description
+      ? `\nAUTHOR INSPIRATION: ${author.name}\n${author.description}\n\nLet this author's storytelling sensibilities guide the STRUCTURE and PACING of the outline - their approach to tension, revelation, and resolution.\n`
+      : '';
 
+    const systemPrompt = `You are a master story architect. Create a detailed chapter-by-chapter outline for a 10-chapter ${genreData.name} story.
+${authorGuidance}
 STORY TITLE: ${title}
 LOGLINE: ${logline}
 
@@ -2422,7 +2471,8 @@ Guidelines:
 - Build tension through the middle chapters
 - Include a major twist or revelation around chapter 6-7
 - Build to a satisfying climax in chapters 8-9
-- Each point should naturally flow from the previous`;
+- Each point should naturally flow from the previous
+- Keep the outline TRUE to the premise - don't add unrelated subplots`;
 
     for (const providerKey of providers) {
       const provider = AI_PROVIDERS[providerKey];
@@ -2603,17 +2653,17 @@ Guidelines:
 
     const genreData = genres[genre];
 
-    // Generate unique AI premise (API call #1)
+    // Generate unique AI premise (API call #1) - NOW INCLUDES AUTHOR STYLE!
     const premise = await generatePremise(genre);
     setCurrentStory(premise);
 
     const bible = new StoryBible(premise.title, genreData.name, premise.logline);
 
-    // NEW: Select author style for this story (from iOS AuthorStyles.json)
-    const authorStyle = getRandomAuthorForGenre(genreData.name);
-    if (authorStyle) {
-      bible.setAuthorStyle(authorStyle);
-      console.log(`Selected author style: ${authorStyle.name}`);
+    // Use the SAME author that influenced the premise (returned from generatePremise)
+    // This ensures consistency - the author who inspired the premise also guides the story
+    if (premise.author) {
+      bible.setAuthorStyle(premise.author);
+      console.log(`Using author style from premise: ${premise.author.name}`);
     }
 
     // NEW: Set genre formula for structural guidance
@@ -2621,9 +2671,9 @@ Guidelines:
       bible.setGenreFormula(genreData.formula);
     }
 
-    // NEW: Generate story outline (API call #2 - ported from iOS app)
+    // Generate story outline (API call #2) - NOW USES SAME AUTHOR for consistency!
     setLoadingText('Architecting your story...');
-    const outline = await generateOutline(genre, premise.title, premise.logline);
+    const outline = await generateOutline(genre, premise.title, premise.logline, premise.author);
     bible.setStoryOutline(outline);
     console.log('Story outline generated:', outline);
 
@@ -2904,7 +2954,8 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
       storage.updateStat('storiesCompleted', 1, 'increment');
       storage.checkAchievements();
       setUserProfile(storage.getUserProfile());
-      alert('🎉 Story complete!');
+      // Transition to completion ceremony screen
+      setScreen('completion');
       return;
     }
 
@@ -3001,11 +3052,43 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
         />
       </div>
 
-      {/* Loading Overlay */}
+      {/* Loading Overlay - CINEMATIC */}
       {loading && (
-        <div className="fixed inset-0 z-50 bg-gray-950/95 flex flex-col items-center justify-center">
-          <div className="w-10 h-10 border-2 border-amber-500/30 border-t-amber-500 rounded-full animate-spin mb-4" />
-          <p className="text-gray-400 italic">{loadingText}</p>
+        <div className="loading-cinematic">
+          {/* Floating particles - VISIBLE */}
+          <div className="loading-particles">
+            {[...Array(20)].map((_, i) => (
+              <div
+                key={i}
+                className="loading-particle"
+                style={{
+                  left: `${Math.random() * 100}%`,
+                  bottom: `-20px`,
+                  animationDelay: `${i * 0.4}s`,
+                  animationDuration: `${6 + Math.random() * 4}s`
+                }}
+              />
+            ))}
+          </div>
+
+          {/* Vignette effect */}
+          <div className="vignette" />
+
+          {/* Centered content */}
+          <div className="relative z-10 flex flex-col items-center">
+            {/* Triple spinner with glow */}
+            <div className="loading-spinner-cinematic" />
+
+            {/* Loading text - dramatic reveal */}
+            <p className="loading-text-cinematic">{loadingText}</p>
+
+            {/* Decorative ornament */}
+            <div className="loading-decoration">
+              <div className="loading-line" />
+              <span className="loading-ornament">✦</span>
+              <div className="loading-line" />
+            </div>
+          </div>
         </div>
       )}
 
@@ -3208,7 +3291,7 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
 
       {/* LANDING SCREEN - Library Experience */}
       {screen === 'landing' && (
-        <div className="relative z-10 min-h-screen p-6 md:p-8">
+        <div className="relative z-10 min-h-screen p-6 md:p-8 animate-cinematic-fade">
           {/* Top Bar */}
           <div className="flex justify-between items-center mb-8">
             <div className="flex items-center gap-3">
@@ -3261,8 +3344,8 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                 <h3 className="text-xs uppercase tracking-widest mb-4 opacity-50 font-bold">
                   📖 Continue Reading
                 </h3>
-                <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide">
-                  {savedStories.slice(0, 5).map(story => {
+                <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide stagger-children">
+                  {savedStories.slice(0, 5).map((story, index) => {
                     const gradients = [
                       'from-rose-600 to-purple-700',
                       'from-amber-600 to-red-700',
@@ -3277,9 +3360,10 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                       <button
                         key={story.id}
                         onClick={() => loadStory(story.id)}
-                        className="flex-shrink-0 group"
+                        className="flex-shrink-0 group animate-fade-in-up"
+                        style={{ animationDelay: `${index * 0.1}s` }}
                       >
-                        <div className={`w-24 h-36 rounded-lg bg-gradient-to-br ${gradient} shadow-lg transform group-hover:scale-105 group-hover:-translate-y-2 transition-all duration-300 flex flex-col justify-end p-2 relative overflow-hidden`}>
+                        <div className={`w-24 h-36 rounded-lg bg-gradient-to-br ${gradient} shadow-lg book-cover flex flex-col justify-end p-2 relative overflow-hidden`}>
                           {/* Progress indicator */}
                           <div className="absolute top-0 left-0 right-0 h-1 bg-black/30">
                             <div
@@ -3314,26 +3398,26 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
               {/* New Story Card */}
               <button
                 onClick={() => setScreen('genre')}
-                className="p-8 rounded-2xl border transition-all duration-300 hover:scale-[1.02] group text-left"
+                className="action-card-glow p-8 rounded-2xl border group text-left animate-cascade stagger-1"
                 style={{
                   borderColor: currentTheme.accent + '40',
                   background: `linear-gradient(135deg, ${currentTheme.bgSecondary} 0%, transparent 100%)`
                 }}
               >
                 <div
-                  className="w-14 h-14 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"
+                  className="w-14 h-14 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform animate-glow-pulse"
                   style={{ backgroundColor: currentTheme.accent + '20' }}
                 >
                   <Play className="w-7 h-7" style={{ color: currentTheme.accent }} />
                 </div>
-                <h3 className="text-xl font-bold mb-2">Begin New Story</h3>
+                <h3 className="text-xl font-bold mb-2 text-glow">Begin New Story</h3>
                 <p className="text-sm opacity-50">Choose from 26 genres with unique story formulas</p>
               </button>
 
               {/* Characters Card */}
               <button
                 onClick={() => setScreen('characters')}
-                className="p-8 rounded-2xl border transition-all duration-300 hover:scale-[1.02] group text-left"
+                className="action-card-glow p-8 rounded-2xl border group text-left animate-cascade stagger-2"
                 style={{
                   borderColor: currentTheme.accent + '40',
                   background: `linear-gradient(135deg, ${currentTheme.bgSecondary} 0%, transparent 100%)`
@@ -3354,7 +3438,7 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
               {/* Library Card */}
               <button
                 onClick={() => setScreen('stories')}
-                className="p-8 rounded-2xl border transition-all duration-300 hover:scale-[1.02] group text-left"
+                className="action-card-glow p-8 rounded-2xl border group text-left animate-cascade stagger-3"
                 style={{
                   borderColor: currentTheme.accent + '40',
                   background: `linear-gradient(135deg, ${currentTheme.bgSecondary} 0%, transparent 100%)`
@@ -4106,20 +4190,23 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
 
       {/* GENRE SELECTION */}
       {screen === 'genre' && (
-        <div className="relative z-10 min-h-screen flex flex-col items-center p-8 overflow-y-auto">
-          <button onClick={() => setScreen('landing')} className="absolute top-6 left-6 text-gray-500 hover:text-gray-300 z-20">
+        <div className="relative z-10 min-h-screen flex flex-col items-center p-8 overflow-y-auto animate-cinematic-fade">
+          {/* Vignette for atmosphere */}
+          <div className="vignette" />
+
+          <button onClick={() => setScreen('landing')} className="absolute top-6 left-6 text-gray-500 hover:text-amber-500 z-20 transition-colors">
             ← Back
           </button>
 
           {selectedCharacter && (
-            <div className="mb-6 text-center pt-12">
+            <div className="mb-6 text-center pt-12 animate-cascade stagger-1">
               <p className="text-gray-500 text-sm">Playing as:</p>
-              <p className="text-amber-400 font-bold">{selectedCharacter.name}</p>
+              <p className="text-amber-400 font-bold text-glow">{selectedCharacter.name}</p>
             </div>
           )}
 
-          <h2 className="text-3xl font-bold mb-2 pt-8">Choose Your World</h2>
-          <p className="text-gray-500 mb-8 text-center">26 genres, each with unique story formulas and author styles</p>
+          <h2 className="text-4xl font-bold mb-2 pt-8 animate-text-reveal text-glow">Choose Your World</h2>
+          <p className="text-gray-400 mb-8 text-center animate-cascade stagger-2">26 genres, each with unique story formulas and author styles</p>
 
           {/* Genre Categories */}
           <div className="w-full max-w-5xl space-y-8">
@@ -4127,7 +4214,7 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
             <div>
               <h3 className="text-xs text-amber-500 uppercase tracking-widest mb-3 font-bold">Speculative Fiction</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {['fantasy', 'darkFantasy', 'scifi', 'cyberpunk', 'retroScifi', 'dystopian', 'paranormal', 'magicRealism'].map(key => {
+                {['fantasy', 'darkFantasy', 'scifi', 'cyberpunk', 'retroScifi', 'dystopian', 'paranormal', 'magicRealism'].map((key, index) => {
                   const genre = genres[key];
                   if (!genre) return null;
                   const hasImage = GENRE_IMAGES[key];
@@ -4135,19 +4222,20 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                     <button
                       key={key}
                       onClick={() => selectGenre(key)}
-                      className={`relative overflow-hidden border border-gray-800 hover:border-amber-500/50 bg-gray-900/50 hover:bg-amber-500/5 transition-all text-center rounded group ${hasImage ? 'h-32' : 'p-4'}`}
+                      className={`genre-card-dramatic relative overflow-hidden bg-gray-900/50 text-center rounded-lg group animate-cascade ${hasImage ? 'h-36' : 'p-4'}`}
+                      style={{ animationDelay: `${index * 0.08}s` }}
                     >
                       {hasImage ? (
                         <>
                           <img
                             src={`/images/genres/${GENRE_IMAGES[key]}`}
                             alt={genre.name}
-                            className="absolute inset-0 w-full h-full object-cover opacity-50 group-hover:opacity-70 transition-opacity"
+                            className="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:opacity-90 group-hover:scale-110 transition-all duration-500"
                           />
-                          <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-950/50 to-transparent" />
-                          <div className="absolute bottom-0 left-0 right-0 p-3">
-                            <span className="text-xl">{genre.icon}</span>
-                            <h4 className="font-bold text-sm text-white">{genre.name}</h4>
+                          <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-950/60 to-transparent" />
+                          <div className="absolute bottom-0 left-0 right-0 p-3 z-10">
+                            <span className="text-2xl drop-shadow-lg">{genre.icon}</span>
+                            <h4 className="font-bold text-sm text-white drop-shadow-lg">{genre.name}</h4>
                           </div>
                         </>
                       ) : (
@@ -4166,7 +4254,7 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
             <div>
               <h3 className="text-xs text-amber-500 uppercase tracking-widest mb-3 font-bold">Mystery & Suspense</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {['mystery', 'thriller', 'noir', 'crime', 'horror', 'gothic'].map(key => {
+                {['mystery', 'thriller', 'noir', 'crime', 'horror', 'gothic'].map((key, index) => {
                   const genre = genres[key];
                   if (!genre) return null;
                   const hasImage = GENRE_IMAGES[key];
@@ -4174,19 +4262,20 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                     <button
                       key={key}
                       onClick={() => selectGenre(key)}
-                      className={`relative overflow-hidden border border-gray-800 hover:border-amber-500/50 bg-gray-900/50 hover:bg-amber-500/5 transition-all text-center rounded group ${hasImage ? 'h-32' : 'p-4'}`}
+                      className={`genre-card-dramatic relative overflow-hidden bg-gray-900/50 text-center rounded-lg group animate-cascade ${hasImage ? 'h-36' : 'p-4'}`}
+                      style={{ animationDelay: `${index * 0.08 + 0.3}s` }}
                     >
                       {hasImage ? (
                         <>
                           <img
                             src={`/images/genres/${GENRE_IMAGES[key]}`}
                             alt={genre.name}
-                            className="absolute inset-0 w-full h-full object-cover opacity-50 group-hover:opacity-70 transition-opacity"
+                            className="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:opacity-90 group-hover:scale-110 transition-all duration-500"
                           />
-                          <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-950/50 to-transparent" />
-                          <div className="absolute bottom-0 left-0 right-0 p-3">
-                            <span className="text-xl">{genre.icon}</span>
-                            <h4 className="font-bold text-sm text-white">{genre.name}</h4>
+                          <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-950/60 to-transparent" />
+                          <div className="absolute bottom-0 left-0 right-0 p-3 z-10">
+                            <span className="text-2xl drop-shadow-lg">{genre.icon}</span>
+                            <h4 className="font-bold text-sm text-white drop-shadow-lg">{genre.name}</h4>
                           </div>
                         </>
                       ) : (
@@ -4205,7 +4294,7 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
             <div>
               <h3 className="text-xs text-amber-500 uppercase tracking-widest mb-3 font-bold">Romance & Drama</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {['romance', 'romcom', 'literary', 'youngAdult', 'historical', 'biography'].map(key => {
+                {['romance', 'romcom', 'literary', 'youngAdult', 'historical', 'biography'].map((key, index) => {
                   const genre = genres[key];
                   if (!genre) return null;
                   const hasImage = GENRE_IMAGES[key];
@@ -4213,19 +4302,20 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                     <button
                       key={key}
                       onClick={() => selectGenre(key)}
-                      className={`relative overflow-hidden border border-gray-800 hover:border-amber-500/50 bg-gray-900/50 hover:bg-amber-500/5 transition-all text-center rounded group ${hasImage ? 'h-32' : 'p-4'}`}
+                      className={`genre-card-dramatic relative overflow-hidden bg-gray-900/50 text-center rounded-lg group animate-cascade ${hasImage ? 'h-36' : 'p-4'}`}
+                      style={{ animationDelay: `${index * 0.08 + 0.5}s` }}
                     >
                       {hasImage ? (
                         <>
                           <img
                             src={`/images/genres/${GENRE_IMAGES[key]}`}
                             alt={genre.name}
-                            className="absolute inset-0 w-full h-full object-cover opacity-50 group-hover:opacity-70 transition-opacity"
+                            className="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:opacity-90 group-hover:scale-110 transition-all duration-500"
                           />
-                          <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-950/50 to-transparent" />
-                          <div className="absolute bottom-0 left-0 right-0 p-3">
-                            <span className="text-xl">{genre.icon}</span>
-                            <h4 className="font-bold text-sm text-white">{genre.name}</h4>
+                          <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-950/60 to-transparent" />
+                          <div className="absolute bottom-0 left-0 right-0 p-3 z-10">
+                            <span className="text-2xl drop-shadow-lg">{genre.icon}</span>
+                            <h4 className="font-bold text-sm text-white drop-shadow-lg">{genre.name}</h4>
                           </div>
                         </>
                       ) : (
@@ -4244,7 +4334,7 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
             <div>
               <h3 className="text-xs text-amber-500 uppercase tracking-widest mb-3 font-bold">Action & Adventure</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {['adventure', 'action', 'western'].map(key => {
+                {['adventure', 'action', 'western'].map((key, index) => {
                   const genre = genres[key];
                   if (!genre) return null;
                   const hasImage = GENRE_IMAGES[key];
@@ -4252,19 +4342,20 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                     <button
                       key={key}
                       onClick={() => selectGenre(key)}
-                      className={`relative overflow-hidden border border-gray-800 hover:border-amber-500/50 bg-gray-900/50 hover:bg-amber-500/5 transition-all text-center rounded group ${hasImage ? 'h-32' : 'p-4'}`}
+                      className={`genre-card-dramatic relative overflow-hidden bg-gray-900/50 text-center rounded-lg group animate-cascade ${hasImage ? 'h-36' : 'p-4'}`}
+                      style={{ animationDelay: `${index * 0.08 + 0.7}s` }}
                     >
                       {hasImage ? (
                         <>
                           <img
                             src={`/images/genres/${GENRE_IMAGES[key]}`}
                             alt={genre.name}
-                            className="absolute inset-0 w-full h-full object-cover opacity-50 group-hover:opacity-70 transition-opacity"
+                            className="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:opacity-90 group-hover:scale-110 transition-all duration-500"
                           />
-                          <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-950/50 to-transparent" />
-                          <div className="absolute bottom-0 left-0 right-0 p-3">
-                            <span className="text-xl">{genre.icon}</span>
-                            <h4 className="font-bold text-sm text-white">{genre.name}</h4>
+                          <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-950/60 to-transparent" />
+                          <div className="absolute bottom-0 left-0 right-0 p-3 z-10">
+                            <span className="text-2xl drop-shadow-lg">{genre.icon}</span>
+                            <h4 className="font-bold text-sm text-white drop-shadow-lg">{genre.name}</h4>
                           </div>
                         </>
                       ) : (
@@ -4283,7 +4374,7 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
             <div className="pb-8">
               <h3 className="text-xs text-amber-500 uppercase tracking-widest mb-3 font-bold">Unique & Experimental</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {['satire', 'standup', 'graphicNovel'].map(key => {
+                {['satire', 'standup', 'graphicNovel'].map((key, index) => {
                   const genre = genres[key];
                   if (!genre) return null;
                   const hasImage = GENRE_IMAGES[key];
@@ -4291,19 +4382,20 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                     <button
                       key={key}
                       onClick={() => selectGenre(key)}
-                      className={`relative overflow-hidden border border-gray-800 hover:border-amber-500/50 bg-gray-900/50 hover:bg-amber-500/5 transition-all text-center rounded group ${hasImage ? 'h-32' : 'p-4'}`}
+                      className={`genre-card-dramatic relative overflow-hidden bg-gray-900/50 text-center rounded-lg group animate-cascade ${hasImage ? 'h-36' : 'p-4'}`}
+                      style={{ animationDelay: `${index * 0.08 + 0.9}s` }}
                     >
                       {hasImage ? (
                         <>
                           <img
                             src={`/images/genres/${GENRE_IMAGES[key]}`}
                             alt={genre.name}
-                            className="absolute inset-0 w-full h-full object-cover opacity-50 group-hover:opacity-70 transition-opacity"
+                            className="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:opacity-90 group-hover:scale-110 transition-all duration-500"
                           />
-                          <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-950/50 to-transparent" />
-                          <div className="absolute bottom-0 left-0 right-0 p-3">
-                            <span className="text-xl">{genre.icon}</span>
-                            <h4 className="font-bold text-sm text-white">{genre.name}</h4>
+                          <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-950/60 to-transparent" />
+                          <div className="absolute bottom-0 left-0 right-0 p-3 z-10">
+                            <span className="text-2xl drop-shadow-lg">{genre.icon}</span>
+                            <h4 className="font-bold text-sm text-white drop-shadow-lg">{genre.name}</h4>
                           </div>
                         </>
                       ) : (
@@ -4413,13 +4505,44 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
 
       {/* READING SCREEN */}
       {screen === 'reading' && chapterData && storyBible && (
-        <div className="relative z-10 min-h-screen">
+        <div className={`relative z-10 min-h-screen animate-page-flip ${getReadingBackgroundClass(storyBible.genre)}`}>
+          {/* Vignette overlay */}
+          <div className="vignette" />
+
+          {/* Ambient floating particles */}
+          <div className="ambient-particles">
+            {[...Array(12)].map((_, i) => (
+              <div
+                key={i}
+                className="ambient-particle"
+                style={{
+                  left: `${Math.random() * 100}%`,
+                  animationDelay: `${i * 1.2}s`,
+                  opacity: 0.3 + Math.random() * 0.3
+                }}
+              />
+            ))}
+          </div>
+
           {/* Header */}
           <header className="fixed top-0 left-0 right-0 z-40 p-4 bg-gradient-to-b from-gray-950 to-transparent">
             <div className="flex justify-between items-center max-w-4xl mx-auto">
-              <span className="text-amber-500 text-sm tracking-widest">
-                Chapter {romans[storyBible.currentChapter - 1] || storyBible.currentChapter}
-              </span>
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={() => {
+                    saveStory();
+                    setScreen('landing');
+                  }}
+                  className="p-2 hover:bg-gray-800 rounded flex items-center gap-2 text-gray-500 hover:text-amber-500 transition-colors"
+                  title="Return to Library"
+                >
+                  <Home className="w-4 h-4" />
+                  <span className="text-xs hidden sm:inline">Library</span>
+                </button>
+                <span className="text-amber-500 text-sm tracking-widest">
+                  Chapter {romans[storyBible.currentChapter - 1] || storyBible.currentChapter}
+                </span>
+              </div>
               <div className="flex items-center gap-4">
                 <button onClick={saveStory} className="p-2 hover:bg-gray-800 rounded" title="Save">
                   <Save className="w-4 h-4 text-gray-500 hover:text-amber-500" />
@@ -4459,12 +4582,6 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
             </div>
           </header>
 
-          {/* Generated by indicator */}
-          {chapterData._generatedBy && (
-            <div className="fixed top-16 left-6 z-30 text-xs text-gray-600">
-              via {chapterData._generatedBy === 'demo' ? 'demo' : AI_PROVIDERS[chapterData._generatedBy]?.name}
-            </div>
-          )}
 
           {/* Content */}
           <article className="max-w-2xl mx-auto px-6 pt-28 pb-24">
@@ -4825,6 +4942,143 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
               </div>
             </aside>
           )}
+        </div>
+      )}
+
+      {/* STORY COMPLETION CEREMONY SCREEN */}
+      {screen === 'completion' && storyBible && (
+        <div className="completion-screen relative z-10 min-h-screen flex items-center justify-center overflow-hidden animate-cinematic-fade">
+          {/* Stars background */}
+          <div className="completion-stars" />
+
+          {/* Light burst effect */}
+          <div className="completion-burst" />
+
+          {/* Vignette */}
+          <div className="vignette" />
+
+          {/* Floating particles - VISIBLE */}
+          <div className="loading-particles">
+            {[...Array(30)].map((_, i) => (
+              <div
+                key={i}
+                className="loading-particle"
+                style={{
+                  left: `${Math.random() * 100}%`,
+                  bottom: `-20px`,
+                  animationDelay: `${i * 0.3}s`,
+                  animationDuration: `${8 + Math.random() * 6}s`
+                }}
+              />
+            ))}
+          </div>
+
+          {/* Content */}
+          <div className="relative z-10 text-center px-8 max-w-2xl mx-auto">
+            {/* Decorative line */}
+            <div className="flex items-center justify-center gap-4 mb-8 animate-cascade stagger-1">
+              <div className="w-24 h-px bg-gradient-to-r from-transparent to-amber-500/70" />
+              <span className="text-amber-500 text-3xl animate-glow-pulse">✦</span>
+              <div className="w-24 h-px bg-gradient-to-l from-transparent to-amber-500/70" />
+            </div>
+
+            {/* The End */}
+            <h1
+              className="text-7xl md:text-8xl font-serif italic mb-4 animate-text-reveal text-glow"
+              style={{
+                fontFamily: 'Georgia, serif',
+                color: '#f5f5f4',
+                textShadow: '0 0 60px rgba(245, 158, 11, 0.5), 0 0 120px rgba(245, 158, 11, 0.3)'
+              }}
+            >
+              The End
+            </h1>
+
+            {/* Story title */}
+            <h2 className="text-xl text-amber-500/80 mb-8 tracking-wide">
+              {storyBible.title}
+            </h2>
+
+            {/* Decorative divider */}
+            <div className="w-24 h-px bg-gradient-to-r from-transparent via-amber-500/50 to-transparent mx-auto mb-8" />
+
+            {/* Stats reveal */}
+            <div className="grid grid-cols-3 gap-8 mb-12">
+              <div className="text-center">
+                <div className="text-3xl font-bold text-amber-500 mb-1">
+                  {storyBible.totalChapters}
+                </div>
+                <div className="text-xs text-gray-500 uppercase tracking-wider">Chapters</div>
+              </div>
+              <div className="text-center">
+                <div className="text-3xl font-bold text-amber-500 mb-1">
+                  {storyBible.choiceHistory?.length || 0}
+                </div>
+                <div className="text-xs text-gray-500 uppercase tracking-wider">Choices Made</div>
+              </div>
+              <div className="text-center">
+                <div className="text-3xl font-bold text-amber-500 mb-1">
+                  {Object.keys(storyBible.characters || {}).length}
+                </div>
+                <div className="text-xs text-gray-500 uppercase tracking-wider">Characters Met</div>
+              </div>
+            </div>
+
+            {/* Achievement notification if any */}
+            {userProfile?.stats?.storiesCompleted === 1 && (
+              <div className="mb-8 p-4 border border-amber-500/30 bg-amber-500/5 rounded-lg inline-block">
+                <span className="text-amber-500 text-sm">First Story Complete!</span>
+              </div>
+            )}
+
+            {/* Action buttons */}
+            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              <button
+                onClick={() => {
+                  setStoryBible(null);
+                  setChapterData(null);
+                  setChoiceMade(false);
+                  setScreen('genre');
+                }}
+                className="px-8 py-3 bg-gradient-to-r from-amber-600 to-amber-500 text-gray-950 font-bold rounded hover:from-amber-500 hover:to-amber-400 transition-all transform hover:scale-105"
+              >
+                Begin Another Tale
+              </button>
+              <button
+                onClick={() => {
+                  setStoryBible(null);
+                  setChapterData(null);
+                  setChoiceMade(false);
+                  setScreen('landing');
+                }}
+                className="px-8 py-3 border border-gray-700 text-gray-300 hover:border-amber-500 hover:text-amber-500 rounded transition-all"
+              >
+                Return to Library
+              </button>
+            </div>
+
+            {/* View characters from this story */}
+            {Object.keys(storyBible.characters || {}).length > 0 && (
+              <button
+                onClick={() => {
+                  setStoryBible(null);
+                  setChapterData(null);
+                  setChoiceMade(false);
+                  setScreen('characters');
+                }}
+                className="mt-6 text-sm text-gray-500 hover:text-amber-500 transition-colors"
+              >
+                View Characters You Met
+              </button>
+            )}
+
+            {/* Decorative bottom */}
+            <div className="flex items-center justify-center gap-4 mt-12">
+              <div className="w-16 h-px bg-gradient-to-r from-transparent to-amber-500/30" />
+              <span className="text-amber-500/30 text-sm">fin</span>
+              <div className="w-16 h-px bg-gradient-to-l from-transparent to-amber-500/30" />
+            </div>
+          </div>
         </div>
       )}
     </div>

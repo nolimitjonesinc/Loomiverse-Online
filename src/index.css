@@ -2,22 +2,27 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ========================================
+   LOOMIVERSE - CINEMATIC EXPERIENCE
+   Big, Bold, Beautiful
+   ======================================== */
+
 /* Custom scrollbar for dark theme */
 ::-webkit-scrollbar {
   width: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #1a1a1a;
+  background: #0a0a0a;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #444;
+  background: #f59e0b;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #555;
+  background: #fbbf24;
 }
 
 /* Smooth scrolling */
@@ -25,7 +30,752 @@ html {
   scroll-behavior: smooth;
 }
 
-/* Font imports for serif reading experience */
+/* Base styles */
 body {
   font-family: 'Georgia', 'Times New Roman', serif;
+  overflow-x: hidden;
+}
+
+/* ========================================
+   CINEMATIC SCREEN TRANSITIONS
+   These are SLOW and DRAMATIC
+   ======================================== */
+
+/* Screen fade in - SLOW and noticeable */
+@keyframes cinematicFadeIn {
+  0% {
+    opacity: 0;
+    transform: scale(1.02);
+    filter: blur(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0);
+  }
+}
+
+/* Rise from below - dramatic entrance */
+@keyframes cinematicRise {
+  0% {
+    opacity: 0;
+    transform: translateY(60px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Curtain reveal - theatrical */
+@keyframes curtainOpen {
+  0% {
+    clip-path: inset(0 50% 0 50%);
+  }
+  100% {
+    clip-path: inset(0 0% 0 0%);
+  }
+}
+
+/* Book page turn */
+@keyframes pageFlip {
+  0% {
+    opacity: 0;
+    transform: perspective(1000px) rotateY(-30deg);
+    transform-origin: left center;
+  }
+  100% {
+    opacity: 1;
+    transform: perspective(1000px) rotateY(0deg);
+    transform-origin: left center;
+  }
+}
+
+/* Zoom reveal */
+@keyframes zoomReveal {
+  0% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Stagger cascade */
+@keyframes cascadeIn {
+  0% {
+    opacity: 0;
+    transform: translateY(40px) scale(0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Glow pulse - VISIBLE */
+@keyframes glowPulse {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(245, 158, 11, 0.3),
+                0 0 40px rgba(245, 158, 11, 0.1);
+  }
+  50% {
+    box-shadow: 0 0 40px rgba(245, 158, 11, 0.6),
+                0 0 80px rgba(245, 158, 11, 0.3);
+  }
+}
+
+/* Floating animation - VISIBLE movement */
+@keyframes floatParticle {
+  0% {
+    transform: translateY(0) translateX(0);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-100vh) translateX(20px);
+    opacity: 0;
+  }
+}
+
+/* Shimmer sweep */
+@keyframes shimmerSweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(200%);
+  }
+}
+
+/* Breathe - subtle but visible */
+@keyframes breathe {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  }
+  50% {
+    transform: scale(1.02);
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+  }
+}
+
+/* Text reveal */
+@keyframes textReveal {
+  0% {
+    opacity: 0;
+    letter-spacing: 0.5em;
+    filter: blur(10px);
+  }
+  100% {
+    opacity: 1;
+    letter-spacing: normal;
+    filter: blur(0);
+  }
+}
+
+/* Spin glow for loading */
+@keyframes spinGlow {
+  0% {
+    transform: rotate(0deg);
+    filter: drop-shadow(0 0 10px rgba(245, 158, 11, 0.5));
+  }
+  50% {
+    filter: drop-shadow(0 0 30px rgba(245, 158, 11, 0.8));
+  }
+  100% {
+    transform: rotate(360deg);
+    filter: drop-shadow(0 0 10px rgba(245, 158, 11, 0.5));
+  }
+}
+
+/* ========================================
+   ANIMATION UTILITY CLASSES
+   ======================================== */
+
+.animate-cinematic-fade {
+  animation: cinematicFadeIn 1.2s ease-out forwards;
+}
+
+.animate-cinematic-rise {
+  animation: cinematicRise 1s ease-out forwards;
+}
+
+.animate-curtain {
+  animation: curtainOpen 1.5s ease-out forwards;
+}
+
+.animate-page-flip {
+  animation: pageFlip 0.8s ease-out forwards;
+}
+
+.animate-zoom-reveal {
+  animation: zoomReveal 1s ease-out forwards;
+}
+
+.animate-cascade {
+  animation: cascadeIn 0.8s ease-out forwards;
+  opacity: 0;
+}
+
+.animate-glow-pulse {
+  animation: glowPulse 3s ease-in-out infinite;
+}
+
+.animate-breathe {
+  animation: breathe 4s ease-in-out infinite;
+}
+
+.animate-text-reveal {
+  animation: textReveal 1.5s ease-out forwards;
+}
+
+/* Staggered delays - SLOWER for impact */
+.stagger-1 { animation-delay: 0.1s; }
+.stagger-2 { animation-delay: 0.2s; }
+.stagger-3 { animation-delay: 0.3s; }
+.stagger-4 { animation-delay: 0.4s; }
+.stagger-5 { animation-delay: 0.5s; }
+.stagger-6 { animation-delay: 0.6s; }
+.stagger-7 { animation-delay: 0.7s; }
+.stagger-8 { animation-delay: 0.8s; }
+
+/* ========================================
+   SCREEN TRANSITION OVERLAY
+   Full-screen dramatic transition
+   ======================================== */
+
+.screen-transition-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #030712;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.screen-transition-overlay.fade-out {
+  animation: fadeOut 0.8s ease-in-out forwards;
+}
+
+@keyframes fadeOut {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* ========================================
+   GENRE-RESPONSIVE BACKGROUNDS
+   BOLD and VISIBLE - not subtle!
+   ======================================== */
+
+/* Fantasy - Warm golden glow with visible light sources */
+.reading-bg-fantasy {
+  background:
+    radial-gradient(ellipse 80% 50% at 20% 80%, rgba(251, 191, 36, 0.25) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 40% at 80% 20%, rgba(251, 191, 36, 0.15) 0%, transparent 50%),
+    radial-gradient(ellipse 100% 100% at 50% 100%, rgba(180, 83, 9, 0.2) 0%, transparent 60%),
+    linear-gradient(to bottom, #0c0a05 0%, #1a1408 30%, #0f0c06 100%);
+}
+
+/* Noir - Rain streaks and moody blue shadows */
+.reading-bg-noir {
+  background:
+    repeating-linear-gradient(
+      90deg,
+      transparent 0px,
+      transparent 3px,
+      rgba(150, 180, 200, 0.03) 3px,
+      rgba(150, 180, 200, 0.03) 4px
+    ),
+    radial-gradient(ellipse 150% 100% at 50% 0%, rgba(30, 58, 95, 0.4) 0%, transparent 50%),
+    radial-gradient(ellipse 100% 80% at 0% 100%, rgba(0, 0, 0, 0.8) 0%, transparent 50%),
+    linear-gradient(to bottom, #050810 0%, #0a1020 50%, #030508 100%);
+}
+
+/* Sci-Fi - Blue HUD glow with scan lines */
+.reading-bg-scifi {
+  background:
+    repeating-linear-gradient(
+      0deg,
+      transparent 0px,
+      transparent 2px,
+      rgba(59, 130, 246, 0.03) 2px,
+      rgba(59, 130, 246, 0.03) 4px
+    ),
+    radial-gradient(ellipse 80% 50% at 50% 0%, rgba(59, 130, 246, 0.2) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 40% at 0% 50%, rgba(6, 182, 212, 0.1) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 40% at 100% 50%, rgba(139, 92, 246, 0.1) 0%, transparent 50%),
+    linear-gradient(to bottom, #020617 0%, #0f172a 50%, #020617 100%);
+}
+
+/* Horror - Darkness closing in with red accent */
+.reading-bg-horror {
+  background:
+    radial-gradient(ellipse 100% 100% at 50% 50%, transparent 30%, rgba(0, 0, 0, 0.9) 70%),
+    radial-gradient(ellipse 30% 30% at 30% 70%, rgba(127, 29, 29, 0.2) 0%, transparent 50%),
+    radial-gradient(ellipse 20% 20% at 80% 30%, rgba(127, 29, 29, 0.15) 0%, transparent 50%),
+    linear-gradient(to bottom, #000000 0%, #0a0505 50%, #000000 100%);
+}
+
+/* Romance - Soft pink/rose warmth */
+.reading-bg-romance {
+  background:
+    radial-gradient(ellipse 100% 80% at 50% 100%, rgba(244, 114, 182, 0.15) 0%, transparent 50%),
+    radial-gradient(ellipse 80% 60% at 20% 20%, rgba(251, 113, 133, 0.1) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 40% at 80% 80%, rgba(244, 114, 182, 0.08) 0%, transparent 50%),
+    linear-gradient(to bottom, #1a0a10 0%, #200d14 50%, #150810 100%);
+}
+
+/* Mystery - Fog and shadows */
+.reading-bg-mystery {
+  background:
+    radial-gradient(ellipse 150% 100% at 30% 100%, rgba(148, 163, 184, 0.15) 0%, transparent 40%),
+    radial-gradient(ellipse 120% 80% at 70% 0%, rgba(148, 163, 184, 0.1) 0%, transparent 40%),
+    radial-gradient(ellipse 80% 60% at 50% 50%, rgba(100, 116, 139, 0.08) 0%, transparent 50%),
+    linear-gradient(to bottom, #0c0e12 0%, #151820 50%, #0a0c10 100%);
+}
+
+/* Thriller - Red tension undertones */
+.reading-bg-thriller {
+  background:
+    radial-gradient(ellipse 80% 40% at 50% 0%, rgba(239, 68, 68, 0.12) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 60% at 0% 100%, rgba(0, 0, 0, 0.6) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 60% at 100% 100%, rgba(0, 0, 0, 0.6) 0%, transparent 50%),
+    linear-gradient(to bottom, #0f0505 0%, #1a0a0a 50%, #0a0505 100%);
+}
+
+/* Historical - Aged parchment warmth */
+.reading-bg-historical {
+  background:
+    radial-gradient(ellipse 100% 80% at 50% 50%, rgba(180, 140, 90, 0.1) 0%, transparent 60%),
+    radial-gradient(ellipse 80% 60% at 20% 80%, rgba(161, 98, 7, 0.08) 0%, transparent 50%),
+    linear-gradient(to bottom, #12100a 0%, #1a1610 50%, #0f0d08 100%);
+}
+
+/* Western - Dusty sunset */
+.reading-bg-western {
+  background:
+    radial-gradient(ellipse 100% 60% at 50% 0%, rgba(234, 88, 12, 0.15) 0%, transparent 50%),
+    radial-gradient(ellipse 80% 40% at 50% 100%, rgba(161, 98, 7, 0.1) 0%, transparent 50%),
+    linear-gradient(to bottom, #1a1008 0%, #201510 50%, #12100a 100%);
+}
+
+/* ========================================
+   CINEMATIC LOADING OVERLAY
+   Dramatic, atmospheric loading
+   ======================================== */
+
+.loading-cinematic {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: radial-gradient(ellipse at center, #0f0f0f 0%, #000000 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+/* Floating particles container */
+.loading-particles {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.loading-particle {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  background: radial-gradient(circle, rgba(245, 158, 11, 0.8) 0%, transparent 70%);
+  border-radius: 50%;
+  animation: floatParticle 8s linear infinite;
+}
+
+/* Spinner with glow */
+.loading-spinner-cinematic {
+  width: 60px;
+  height: 60px;
+  border: 3px solid transparent;
+  border-top-color: #f59e0b;
+  border-radius: 50%;
+  animation: spinGlow 1.5s linear infinite;
+  position: relative;
+}
+
+.loading-spinner-cinematic::before {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border: 2px solid transparent;
+  border-top-color: rgba(245, 158, 11, 0.5);
+  border-radius: 50%;
+  animation: spinGlow 2s linear infinite reverse;
+}
+
+.loading-spinner-cinematic::after {
+  content: '';
+  position: absolute;
+  inset: 14px;
+  border: 1px solid transparent;
+  border-top-color: rgba(245, 158, 11, 0.3);
+  border-radius: 50%;
+  animation: spinGlow 2.5s linear infinite;
+}
+
+/* Loading text */
+.loading-text-cinematic {
+  margin-top: 2rem;
+  font-size: 1.1rem;
+  color: #d4d4d4;
+  font-style: italic;
+  animation: textReveal 1s ease-out forwards, pulse 2s ease-in-out infinite 1s;
+  text-shadow: 0 0 20px rgba(245, 158, 11, 0.3);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+
+/* Decorative lines */
+.loading-decoration {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1.5rem;
+  opacity: 0;
+  animation: cinematicFadeIn 1s ease-out 0.5s forwards;
+}
+
+.loading-line {
+  width: 60px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(245, 158, 11, 0.5), transparent);
+}
+
+.loading-ornament {
+  color: rgba(245, 158, 11, 0.6);
+  font-size: 0.8rem;
+}
+
+/* ========================================
+   BOOK COVERS - 3D EFFECT
+   ======================================== */
+
+.book-cover-3d {
+  position: relative;
+  transform-style: preserve-3d;
+  transition: all 0.5s cubic-bezier(0.23, 1, 0.32, 1);
+  cursor: pointer;
+}
+
+.book-cover-3d:hover {
+  transform: perspective(1000px) rotateY(-15deg) translateY(-10px) scale(1.05);
+  box-shadow:
+    20px 20px 60px rgba(0, 0, 0, 0.6),
+    0 0 40px rgba(245, 158, 11, 0.2);
+}
+
+/* Book spine effect */
+.book-cover-3d::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  background: linear-gradient(90deg, rgba(0,0,0,0.5), transparent);
+  transform: translateX(-100%);
+  transition: all 0.5s ease;
+}
+
+.book-cover-3d:hover::before {
+  transform: translateX(0) rotateY(90deg);
+  transform-origin: right;
+}
+
+/* ========================================
+   GENRE CARDS - DRAMATIC HOVER
+   ======================================== */
+
+.genre-card-dramatic {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Glow overlay on hover */
+.genre-card-dramatic::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 50%, rgba(245, 158, 11, 0.3) 0%, transparent 70%);
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  pointer-events: none;
+}
+
+.genre-card-dramatic:hover::before {
+  opacity: 1;
+}
+
+/* Shimmer effect */
+.genre-card-dramatic::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 60%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+  transition: none;
+}
+
+.genre-card-dramatic:hover::after {
+  animation: shimmerSweep 0.8s ease-out;
+}
+
+.genre-card-dramatic:hover {
+  transform: translateY(-8px) scale(1.02);
+  border-color: rgba(245, 158, 11, 0.5);
+  box-shadow:
+    0 20px 40px rgba(0, 0, 0, 0.4),
+    0 0 30px rgba(245, 158, 11, 0.2);
+}
+
+/* ========================================
+   ACTION CARDS - GLOW EFFECT
+   ======================================== */
+
+.action-card-glow {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.4s ease;
+}
+
+.action-card-glow::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  background: linear-gradient(45deg, transparent, rgba(245, 158, 11, 0.3), transparent);
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  z-index: -1;
+  border-radius: inherit;
+}
+
+.action-card-glow:hover::before {
+  opacity: 1;
+}
+
+.action-card-glow:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+}
+
+/* ========================================
+   CHOICE BUTTONS - DRAMATIC
+   ======================================== */
+
+.choice-dramatic {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.choice-dramatic::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(245, 158, 11, 0.1), transparent);
+  transform: translateX(-100%);
+  transition: transform 0.6s ease;
+}
+
+.choice-dramatic:hover::before {
+  transform: translateX(100%);
+}
+
+.choice-dramatic:hover {
+  border-color: rgba(190, 75, 75, 0.5);
+  background: rgba(190, 75, 75, 0.1);
+  transform: translateX(8px);
+  box-shadow: -4px 0 20px rgba(190, 75, 75, 0.2);
+}
+
+/* ========================================
+   STORY COMPLETION CEREMONY
+   ======================================== */
+
+.completion-screen {
+  position: relative;
+  overflow: hidden;
+}
+
+/* Stars background */
+.completion-stars {
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(2px 2px at 20% 30%, rgba(255,255,255,0.8) 0%, transparent 100%),
+    radial-gradient(2px 2px at 40% 70%, rgba(255,255,255,0.6) 0%, transparent 100%),
+    radial-gradient(1px 1px at 60% 20%, rgba(255,255,255,0.7) 0%, transparent 100%),
+    radial-gradient(2px 2px at 80% 50%, rgba(255,255,255,0.5) 0%, transparent 100%),
+    radial-gradient(1px 1px at 10% 80%, rgba(255,255,255,0.6) 0%, transparent 100%),
+    radial-gradient(1px 1px at 90% 90%, rgba(255,255,255,0.4) 0%, transparent 100%),
+    radial-gradient(1px 1px at 30% 50%, rgba(255,255,255,0.5) 0%, transparent 100%),
+    radial-gradient(2px 2px at 70% 80%, rgba(255,255,255,0.3) 0%, transparent 100%);
+  animation: twinkle 4s ease-in-out infinite;
+}
+
+@keyframes twinkle {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+/* Radial light burst */
+.completion-burst {
+  position: absolute;
+  top: 30%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 600px;
+  height: 600px;
+  background: radial-gradient(circle, rgba(245, 158, 11, 0.15) 0%, transparent 60%);
+  animation: burstPulse 3s ease-in-out infinite;
+}
+
+@keyframes burstPulse {
+  0%, 100% { transform: translateX(-50%) scale(1); opacity: 0.5; }
+  50% { transform: translateX(-50%) scale(1.2); opacity: 0.8; }
+}
+
+/* ========================================
+   FLOATING AMBIENT PARTICLES
+   For reading screen atmosphere
+   ======================================== */
+
+.ambient-particles {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 1;
+}
+
+.ambient-particle {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  background: rgba(245, 158, 11, 0.4);
+  border-radius: 50%;
+  animation: floatAmbient 15s linear infinite;
+}
+
+@keyframes floatAmbient {
+  0% {
+    transform: translateY(100vh) translateX(0) scale(0);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+    transform: translateY(90vh) translateX(10px) scale(1);
+  }
+  90% {
+    opacity: 1;
+    transform: translateY(10vh) translateX(-10px) scale(1);
+  }
+  100% {
+    transform: translateY(0) translateX(0) scale(0);
+    opacity: 0;
+  }
+}
+
+/* ========================================
+   VIGNETTE OVERLAY
+   ======================================== */
+
+.vignette {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  background: radial-gradient(ellipse at center, transparent 40%, rgba(0, 0, 0, 0.4) 100%);
+}
+
+/* ========================================
+   TEXT EFFECTS
+   ======================================== */
+
+.text-glow {
+  text-shadow: 0 0 10px rgba(245, 158, 11, 0.5),
+               0 0 20px rgba(245, 158, 11, 0.3),
+               0 0 40px rgba(245, 158, 11, 0.1);
+}
+
+.text-dramatic {
+  background: linear-gradient(135deg, #fbbf24, #f59e0b, #d97706);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ========================================
+   SCROLLBAR HIDE
+   ======================================== */
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* ========================================
+   RESPONSIVE ADJUSTMENTS
+   ======================================== */
+
+@media (max-width: 768px) {
+  .book-cover-3d:hover {
+    transform: translateY(-5px) scale(1.02);
+  }
+
+  .genre-card-dramatic:hover {
+    transform: translateY(-4px);
+  }
+}
+
+/* ========================================
+   REDUCED MOTION SUPPORT
+   ======================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
