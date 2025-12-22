@@ -2219,6 +2219,13 @@ export default function Loomiverse() {
   const [openaiKey, setOpenaiKey] = useState('');
   const [anthropicKey, setAnthropicKey] = useState('');
 
+  // Confirmation Modal
+  const [confirmModal, setConfirmModal] = useState(null); // { title, message, onConfirm, confirmText, confirmStyle }
+
+  // Library Search & Sort
+  const [librarySearch, setLibrarySearch] = useState('');
+  const [librarySort, setLibrarySort] = useState('lastPlayed'); // lastPlayed, title, progress, genre
+
   // Initialize
   useEffect(() => {
     setCharacters(storage.getCharacters());
@@ -2231,6 +2238,18 @@ export default function Loomiverse() {
     setLibraryTheme(storage.getSetting('libraryTheme', 'ancientCastle'));
     setUserProfile(storage.getUserProfile());
   }, []);
+
+  // Click outside to close menus
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      // Close story menu if clicking outside
+      if (showStoryMenu && !e.target.closest('.story-menu-container')) {
+        setShowStoryMenu(null);
+      }
+    };
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [showStoryMenu]);
 
   // Save settings
   const saveSettings = () => {
@@ -3341,7 +3360,7 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
             {savedStories.length > 0 && (
               <div className="mb-12">
                 <h3 className="text-xs uppercase tracking-widest mb-4 opacity-50 font-bold">
-                  📖 Continue Reading
+                  Continue Reading
                 </h3>
                 <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide stagger-children">
                   {savedStories.slice(0, 5).map((story, index) => {
@@ -3783,6 +3802,46 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
             )}
           </div>
 
+          {/* Search and Sort Controls */}
+          {(savedStories.length > 0 || archivedStories.length > 0) && (
+            <div className="flex flex-col sm:flex-row gap-3 mb-4">
+              {/* Search */}
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  placeholder="Search stories..."
+                  value={librarySearch}
+                  onChange={(e) => setLibrarySearch(e.target.value)}
+                  className="w-full px-4 py-2 pl-10 bg-gray-900/50 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:border-amber-500/50 focus:outline-none transition-colors"
+                />
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                {librarySearch && (
+                  <button
+                    onClick={() => setLibrarySearch('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+
+              {/* Sort Dropdown */}
+              <select
+                value={librarySort}
+                onChange={(e) => setLibrarySort(e.target.value)}
+                className="px-4 py-2 bg-gray-900/50 border border-gray-700 rounded-lg text-gray-300 focus:border-amber-500/50 focus:outline-none transition-colors cursor-pointer"
+              >
+                <option value="lastPlayed">Recently Read</option>
+                <option value="title">Title A-Z</option>
+                <option value="titleDesc">Title Z-A</option>
+                <option value="progress">Progress</option>
+                <option value="genre">Genre</option>
+              </select>
+            </div>
+          )}
+
           {/* Collection Filter Tabs - Only show for active stories */}
           {!showArchivedStories && savedStories.length > 0 && (
             <div className="flex gap-2 mb-6 flex-wrap">
@@ -3825,6 +3884,34 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                 displayStories = displayStories.filter(s => collection.storyIds.includes(s.id));
               }
             }
+
+            // Apply search filter
+            if (librarySearch.trim()) {
+              const searchLower = librarySearch.toLowerCase().trim();
+              displayStories = displayStories.filter(s =>
+                s.title?.toLowerCase().includes(searchLower) ||
+                s.genre?.toLowerCase().includes(searchLower) ||
+                s.protagonistName?.toLowerCase().includes(searchLower) ||
+                s.logline?.toLowerCase().includes(searchLower)
+              );
+            }
+
+            // Apply sort
+            displayStories = [...displayStories].sort((a, b) => {
+              switch (librarySort) {
+                case 'title':
+                  return (a.title || '').localeCompare(b.title || '');
+                case 'titleDesc':
+                  return (b.title || '').localeCompare(a.title || '');
+                case 'progress':
+                  return (b.progress / b.totalChapters) - (a.progress / a.totalChapters);
+                case 'genre':
+                  return (a.genre || '').localeCompare(b.genre || '');
+                case 'lastPlayed':
+                default:
+                  return new Date(b.lastPlayed) - new Date(a.lastPlayed);
+              }
+            });
 
             const gradients = [
               'from-rose-600 to-purple-700',
@@ -3959,10 +4046,16 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                               </button>
                               <button
                                 onClick={() => {
-                                  if (confirm(`Permanently delete "${story.title}"? This cannot be undone.`)) {
-                                    storage.deleteStory(story.id);
-                                    setArchivedStories(storage.listArchivedStories());
-                                  }
+                                  setConfirmModal({
+                                    title: 'Delete Forever',
+                                    message: `Permanently delete "${story.title}"? This cannot be undone.`,
+                                    confirmText: 'Delete Forever',
+                                    confirmStyle: 'danger',
+                                    onConfirm: () => {
+                                      storage.deleteStory(story.id);
+                                      setArchivedStories(storage.listArchivedStories());
+                                    }
+                                  });
                                 }}
                                 className="px-4 py-2 border border-red-800 text-red-400 hover:bg-red-900 rounded text-sm"
                               >
@@ -3979,7 +4072,7 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                               </button>
 
                               {/* Three-dot Menu */}
-                              <div className="relative">
+                              <div className="relative story-menu-container">
                                 <button
                                   onClick={() => setShowStoryMenu(showStoryMenu === story.id ? null : story.id)}
                                   className="p-2 border border-gray-700 text-gray-400 hover:border-gray-500 hover:text-gray-300 rounded transition-colors"
@@ -4037,11 +4130,17 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                                     {/* Delete */}
                                     <button
                                       onClick={() => {
-                                        if (confirm(`Delete "${story.title}"? This cannot be undone.`)) {
-                                          storage.deleteStory(story.id);
-                                          setSavedStories(storage.listStories());
-                                          setShowStoryMenu(null);
-                                        }
+                                        setShowStoryMenu(null);
+                                        setConfirmModal({
+                                          title: 'Delete Story',
+                                          message: `Are you sure you want to delete "${story.title}"? This cannot be undone.`,
+                                          confirmText: 'Delete',
+                                          confirmStyle: 'danger',
+                                          onConfirm: () => {
+                                            storage.deleteStory(story.id);
+                                            setSavedStories(storage.listStories());
+                                          }
+                                        });
                                       }}
                                       className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-red-900/50 transition-colors text-red-400"
                                     >
@@ -5086,6 +5185,37 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
               <div className="w-16 h-px bg-gradient-to-r from-transparent to-amber-500/30" />
               <span className="text-amber-500/30 text-sm">fin</span>
               <div className="w-16 h-px bg-gradient-to-l from-transparent to-amber-500/30" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      {confirmModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
+          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 max-w-md mx-4 shadow-2xl">
+            <h3 className="text-xl font-bold text-white mb-2">{confirmModal.title}</h3>
+            <p className="text-gray-400 mb-6">{confirmModal.message}</p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setConfirmModal(null)}
+                className="px-4 py-2 border border-gray-700 text-gray-400 hover:border-gray-500 hover:text-gray-300 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  confirmModal.onConfirm();
+                  setConfirmModal(null);
+                }}
+                className={`px-4 py-2 rounded-lg font-bold transition-colors ${
+                  confirmModal.confirmStyle === 'danger'
+                    ? 'bg-red-600 hover:bg-red-500 text-white'
+                    : 'bg-amber-600 hover:bg-amber-500 text-gray-950'
+                }`}
+              >
+                {confirmModal.confirmText || 'Confirm'}
+              </button>
             </div>
           </div>
         </div>
