@@ -1410,6 +1410,45 @@ class StorageManager {
     return profile;
   }
 
+  // Reconcile stats with actual stored data to fix any mismatches
+  reconcileStats() {
+    const profile = this.getUserProfile();
+    const actualStories = this.listStories(true); // Include archived
+    const activeStories = actualStories.filter(s => s.status !== 'archived');
+    const completedStories = actualStories.filter(s => s.progress >= s.totalChapters);
+    const characters = this.getCharacters();
+
+    let needsUpdate = false;
+
+    // Check and fix storiesCreated mismatch
+    if (profile.stats.storiesCreated !== actualStories.length) {
+      console.log(`[Storage] Reconciling storiesCreated: ${profile.stats.storiesCreated} -> ${actualStories.length}`);
+      profile.stats.storiesCreated = actualStories.length;
+      needsUpdate = true;
+    }
+
+    // Check and fix storiesCompleted mismatch
+    if (profile.stats.storiesCompleted !== completedStories.length) {
+      console.log(`[Storage] Reconciling storiesCompleted: ${profile.stats.storiesCompleted} -> ${completedStories.length}`);
+      profile.stats.storiesCompleted = completedStories.length;
+      needsUpdate = true;
+    }
+
+    // Check and fix charactersGenerated mismatch
+    if (profile.stats.charactersGenerated !== characters.length) {
+      console.log(`[Storage] Reconciling charactersGenerated: ${profile.stats.charactersGenerated} -> ${characters.length}`);
+      profile.stats.charactersGenerated = characters.length;
+      needsUpdate = true;
+    }
+
+    if (needsUpdate) {
+      this.saveUserProfile(profile);
+      console.log('[Storage] Stats reconciled with actual data');
+    }
+
+    return profile;
+  }
+
   getFavoriteGenres() {
     const profile = this.getUserProfile();
     return Object.entries(profile.genreUsage)
@@ -2268,6 +2307,16 @@ export default function Loomiverse() {
   // Confirmation Modal
   const [confirmModal, setConfirmModal] = useState(null); // { title, message, onConfirm, confirmText, confirmStyle }
 
+  // Authentication (Supabase)
+  const [authUser, setAuthUser] = useState(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authMode, setAuthMode] = useState('signin'); // 'signin' or 'signup'
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState('');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authDisplayName, setAuthDisplayName] = useState('');
+
   // Library Search & Sort
   const [librarySearch, setLibrarySearch] = useState('');
   const [librarySort, setLibrarySort] = useState('lastPlayed'); // lastPlayed, title, progress, genre
@@ -2282,8 +2331,88 @@ export default function Loomiverse() {
     setAnthropicKey(storage.getApiKey('anthropic'));
     setPrimaryProvider(storage.getSetting('primaryProvider', 'openai'));
     setLibraryTheme(storage.getSetting('libraryTheme', 'ancientCastle'));
-    setUserProfile(storage.getUserProfile());
+    // Reconcile stats with actual data to fix any mismatches
+    const reconciledProfile = storage.reconcileStats();
+    setUserProfile(reconciledProfile);
+
+    // Check for existing Supabase session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setAuthUser(session?.user || null);
+      if (session?.user) {
+        console.log('[Auth] Logged in as:', session.user.email);
+      }
+    });
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      setAuthUser(session?.user || null);
+      if (event === 'SIGNED_IN') {
+        console.log('[Auth] Signed in:', session?.user?.email);
+        // Trigger cloud sync
+        cloudStorage.syncAllFromLocal();
+      } else if (event === 'SIGNED_OUT') {
+        console.log('[Auth] Signed out');
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
+
+  // Auth handlers
+  const handleSignUp = async (e) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    setAuthError('');
+
+    const { data, error } = await supabase.auth.signUp({
+      email: authEmail,
+      password: authPassword,
+      options: {
+        data: { display_name: authDisplayName || authEmail.split('@')[0] }
+      }
+    });
+
+    if (error) {
+      setAuthError(error.message);
+    } else if (data.user) {
+      setShowAuthModal(false);
+      setAuthEmail('');
+      setAuthPassword('');
+      setAuthDisplayName('');
+      if (data.session) {
+        console.log('[Auth] Signup successful, auto logged in');
+      } else {
+        alert('Check your email to confirm your account!');
+      }
+    }
+    setAuthLoading(false);
+  };
+
+  const handleSignIn = async (e) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    setAuthError('');
+
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: authEmail,
+      password: authPassword
+    });
+
+    if (error) {
+      setAuthError(error.message);
+    } else {
+      setShowAuthModal(false);
+      setAuthEmail('');
+      setAuthPassword('');
+      console.log('[Auth] Sign in successful');
+    }
+    setAuthLoading(false);
+  };
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    setAuthUser(null);
+  };
 
   // Click outside to close menus
   useEffect(() => {
@@ -3546,6 +3675,22 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
               </div>
             </div>
             <div className="flex items-center gap-4">
+              {/* Cloud Sync Status */}
+              {authUser ? (
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-green-500/10 border border-green-500/30 rounded-full">
+                  <Cloud className="w-3 h-3 text-green-500" />
+                  <span className="text-xs text-green-400 hidden sm:inline">Synced</span>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowAuthModal(true)}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 border border-amber-500/30 rounded-full hover:bg-amber-500/20 transition-colors"
+                >
+                  <CloudOff className="w-3 h-3 text-amber-500" />
+                  <span className="text-xs text-amber-400 hidden sm:inline">Sign in to sync</span>
+                </button>
+              )}
+
               <button
                 onClick={() => setScreen('profile')}
                 className="opacity-60 hover:opacity-100 transition-opacity flex items-center gap-2"
@@ -3553,6 +3698,27 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                 <User className="w-4 h-4" />
                 <span className="hidden sm:inline text-sm">Profile</span>
               </button>
+
+              {/* Auth Button */}
+              {authUser ? (
+                <button
+                  onClick={handleSignOut}
+                  className="opacity-60 hover:opacity-100 transition-opacity flex items-center gap-2 text-sm"
+                  title={`Signed in as ${authUser.email}`}
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span className="hidden sm:inline">Sign Out</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => setShowAuthModal(true)}
+                  className="opacity-60 hover:opacity-100 transition-opacity flex items-center gap-2 text-sm"
+                >
+                  <LogIn className="w-4 h-4" />
+                  <span className="hidden sm:inline">Sign In</span>
+                </button>
+              )}
+
               <button
                 onClick={() => setShowSettings(true)}
                 className="opacity-60 hover:opacity-100 transition-opacity flex items-center gap-2"
@@ -5555,6 +5721,132 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
               >
                 {confirmModal.confirmText || 'Confirm'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Auth Modal */}
+      {showAuthModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
+          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">
+            {/* Header */}
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-bold text-white">
+                {authMode === 'signin' ? 'Welcome Back' : 'Create Account'}
+              </h3>
+              <button
+                onClick={() => {
+                  setShowAuthModal(false);
+                  setAuthError('');
+                }}
+                className="text-gray-500 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Cloud sync info */}
+            <div className="flex items-center gap-2 text-sm text-gray-400 mb-6 p-3 bg-gray-800/50 rounded-lg">
+              <Cloud className="w-4 h-4 text-amber-500" />
+              <span>Sign in to sync stories across all your devices</span>
+            </div>
+
+            {/* Error */}
+            {authError && (
+              <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+                {authError}
+              </div>
+            )}
+
+            {/* Form */}
+            <form onSubmit={authMode === 'signin' ? handleSignIn : handleSignUp}>
+              {authMode === 'signup' && (
+                <div className="mb-4">
+                  <label className="block text-sm text-gray-400 mb-1">Display Name</label>
+                  <input
+                    type="text"
+                    value={authDisplayName}
+                    onChange={(e) => setAuthDisplayName(e.target.value)}
+                    placeholder="Your name"
+                    className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:border-amber-500/50 focus:outline-none transition-colors"
+                  />
+                </div>
+              )}
+
+              <div className="mb-4">
+                <label className="block text-sm text-gray-400 mb-1">Email</label>
+                <input
+                  type="email"
+                  value={authEmail}
+                  onChange={(e) => setAuthEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  required
+                  className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:border-amber-500/50 focus:outline-none transition-colors"
+                />
+              </div>
+
+              <div className="mb-6">
+                <label className="block text-sm text-gray-400 mb-1">Password</label>
+                <input
+                  type="password"
+                  value={authPassword}
+                  onChange={(e) => setAuthPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                  minLength={6}
+                  className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:border-amber-500/50 focus:outline-none transition-colors"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={authLoading}
+                className="w-full py-3 bg-amber-600 hover:bg-amber-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-gray-950 font-bold rounded-lg transition-colors flex items-center justify-center gap-2"
+              >
+                {authLoading ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-gray-950 border-t-transparent rounded-full animate-spin" />
+                    {authMode === 'signin' ? 'Signing In...' : 'Creating Account...'}
+                  </>
+                ) : (
+                  <>
+                    {authMode === 'signin' ? <LogIn className="w-4 h-4" /> : <User className="w-4 h-4" />}
+                    {authMode === 'signin' ? 'Sign In' : 'Create Account'}
+                  </>
+                )}
+              </button>
+            </form>
+
+            {/* Toggle mode */}
+            <div className="mt-6 text-center text-sm text-gray-500">
+              {authMode === 'signin' ? (
+                <>
+                  Don't have an account?{' '}
+                  <button
+                    onClick={() => {
+                      setAuthMode('signup');
+                      setAuthError('');
+                    }}
+                    className="text-amber-500 hover:text-amber-400 font-medium"
+                  >
+                    Sign Up
+                  </button>
+                </>
+              ) : (
+                <>
+                  Already have an account?{' '}
+                  <button
+                    onClick={() => {
+                      setAuthMode('signin');
+                      setAuthError('');
+                    }}
+                    className="text-amber-500 hover:text-amber-400 font-medium"
+                  >
+                    Sign In
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>
