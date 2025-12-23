@@ -2265,6 +2265,41 @@ export default function Loomiverse() {
     }
   }, [chatMessages, chatLoading]);
 
+  // AUTO-SAVE: Save when user leaves page or switches tabs (safety net)
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      // Save current story before page unloads
+      if (storyBible && chapterData) {
+        storage.saveStory(storyBible.storyId, {
+          bible: storyBible,
+          currentChapter: chapterData,
+          lastPlayed: new Date().toISOString()
+        });
+        console.log('[Loomiverse] Auto-saved on page unload');
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      // Save when user switches to another tab or minimizes
+      if (document.visibilityState === 'hidden' && storyBible && chapterData) {
+        storage.saveStory(storyBible.storyId, {
+          bible: storyBible,
+          currentChapter: chapterData,
+          lastPlayed: new Date().toISOString()
+        });
+        console.log('[Loomiverse] Auto-saved on visibility change');
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [storyBible, chapterData]);
+
   // Save settings
   const saveSettings = () => {
     storage.saveApiKey('openai', openaiKey);
@@ -3051,6 +3086,9 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
       setChoiceMade(false);
       setScreen('reading');
 
+      // AUTO-SAVE: Save immediately after first chapter is generated
+      autoSaveStory(bible, chapter);
+
       // Track story creation and first chapter read
       storage.updateStat('storiesCreated', 1, 'increment');
       storage.updateStat('chaptersRead', 1, 'increment');
@@ -3071,6 +3109,11 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
     bible.recordChoice(bible.currentChapter, choiceId, choiceText);
     setStoryBible(bible);
     setChoiceMade(true);
+
+    // AUTO-SAVE: Save after player makes a choice
+    if (chapterData) {
+      autoSaveStory(bible, chapterData);
+    }
   };
 
   // Next chapter
@@ -3080,6 +3123,9 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
     bible.currentChapter++;
 
     if (bible.currentChapter > bible.totalChapters) {
+      // AUTO-SAVE: Save completed story before showing completion screen
+      autoSaveStory();
+
       // Track story completion
       storage.updateStat('storiesCompleted', 1, 'increment');
       storage.checkAchievements();
@@ -3104,6 +3150,9 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
       setChapterData(chapter);
       setChoiceMade(false);
 
+      // AUTO-SAVE: Save after each chapter is generated
+      autoSaveStory(bible, chapter);
+
       // Track chapter read
       storage.updateStat('chaptersRead', 1, 'increment');
       storage.updateReadingStreak();
@@ -3116,16 +3165,34 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
     setLoading(false);
   };
 
-  // Save story
+  // Auto-save story (silent - for automatic saves)
+  const autoSaveStory = (bible = storyBible, chapter = chapterData) => {
+    if (!bible || !chapter) return false;
+    try {
+      storage.saveStory(bible.storyId, {
+        bible: bible,
+        currentChapter: chapter,
+        lastPlayed: new Date().toISOString()
+      });
+      setSavedStories(storage.listStories());
+      console.log('[Loomiverse] Auto-saved:', bible.title);
+      return true;
+    } catch (error) {
+      console.error('[Loomiverse] Auto-save failed:', error);
+      return false;
+    }
+  };
+
+  // Save story (manual - shows confirmation)
   const saveStory = () => {
-    if (!storyBible || !chapterData) return;
-    storage.saveStory(storyBible.storyId, {
-      bible: storyBible,
-      currentChapter: chapterData,
-      lastPlayed: new Date().toISOString()
-    });
-    setSavedStories(storage.listStories());
-    alert('✓ Story saved!');
+    if (autoSaveStory()) {
+      // Brief visual feedback instead of blocking alert
+      const toast = document.createElement('div');
+      toast.className = 'fixed bottom-4 right-4 bg-amber-600 text-gray-950 px-4 py-2 rounded-lg shadow-lg z-50 animate-fade-in';
+      toast.textContent = 'Story saved';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 2000);
+    }
   };
 
   // Load story from storage
@@ -4751,7 +4818,7 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
               <div className="flex items-center gap-4">
                 <button
                   onClick={() => {
-                    saveStory();
+                    autoSaveStory();
                     setScreen('landing');
                   }}
                   className="p-2 hover:bg-gray-800 rounded flex items-center gap-2 text-gray-500 hover:text-amber-500 transition-colors"
@@ -5207,6 +5274,8 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
           <header className="flex items-center justify-between px-6 py-4 border-b border-gray-800 bg-gray-900/80 backdrop-blur-sm">
             <button
               onClick={() => {
+                // AUTO-SAVE: Save story when leaving chat
+                autoSaveStory();
                 setScreen('landing');
                 setChatCharacter(null);
                 setChatMessages([]);
