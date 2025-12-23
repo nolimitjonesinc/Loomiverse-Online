@@ -1,8 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Save, Library, Globe, Upload, BookOpen, X, Settings, User, Sparkles, Play, ChevronRight, Heart, Brain, Home, Users, Zap, Pencil, Archive, Bookmark, FolderPlus, MoreVertical, Trash2, MessageCircle, Send, Cloud, CloudOff, LogIn, LogOut } from 'lucide-react';
+import { Save, Library, Globe, Upload, BookOpen, X, Settings, User, Sparkles, Play, ChevronRight, Heart, Brain, Home, Users, Zap, Pencil, Archive, Bookmark, FolderPlus, MoreVertical, Trash2, MessageCircle, Send, Cloud, CloudOff, LogIn, LogOut, Download, Check, Square, CheckSquare } from 'lucide-react';
+import { jsPDF } from 'jspdf';
 
 // Import author styles from iOS app (25+ writing styles)
 import { buildAuthorStylePrompt, getRandomAuthorForGenre } from './data/authorStyles.js';
+
+// Import AI Author personalities for Writers Room
+import { AI_AUTHORS, getAuthorById, getBestAuthorForGenre, buildAuthorPrompt } from './data/aiAuthors.js';
 
 // Import Supabase for cloud storage
 import { supabase } from './lib/supabase.js';
@@ -2255,6 +2259,7 @@ export default function Loomiverse() {
   
   // Story state
   const [selectedGenre, setSelectedGenre] = useState(null);
+  const [narratorCharacter, setNarratorCharacter] = useState(null); // Character used as story narrator
   const [currentStory, setCurrentStory] = useState(null);
   const [storyBible, setStoryBible] = useState(null);
   const [chapterData, setChapterData] = useState(null);
@@ -2304,6 +2309,13 @@ export default function Loomiverse() {
   const [openaiKey, setOpenaiKey] = useState('');
   const [anthropicKey, setAnthropicKey] = useState('');
 
+  // Audio Narration Settings
+  const [elevenLabsKey, setElevenLabsKey] = useState('');
+  const [selectedVoice, setSelectedVoice] = useState('alloy'); // Default voice
+  const [autoNarrate, setAutoNarrate] = useState(false);
+  const [narrationSpeed, setNarrationSpeed] = useState(1.0);
+  const [audioEnabled, setAudioEnabled] = useState(false);
+
   // Confirmation Modal
   const [confirmModal, setConfirmModal] = useState(null); // { title, message, onConfirm, confirmText, confirmStyle }
 
@@ -2317,10 +2329,12 @@ export default function Loomiverse() {
   const [authPassword, setAuthPassword] = useState('');
   const [authDisplayName, setAuthDisplayName] = useState('');
 
-  // Interactive Reading Mode - type your own responses
-  const [interactiveMode, setInteractiveMode] = useState(false);
+  // Reading Mode: 'choices' (default), 'interactive' (player types action), 'narrator' (player guides story)
+  const [readingMode, setReadingMode] = useState('choices');
   const [interactiveInput, setInteractiveInput] = useState('');
   const [interactiveLoading, setInteractiveLoading] = useState(false);
+  const [narratorInput, setNarratorInput] = useState('');
+  const [narratorLoading, setNarratorLoading] = useState(false);
 
   // Friends Mode - multiplayer story sessions
   const [sessionCode, setSessionCode] = useState('');
@@ -2334,6 +2348,10 @@ export default function Loomiverse() {
   const [librarySearch, setLibrarySearch] = useState('');
   const [librarySort, setLibrarySort] = useState('lastPlayed'); // lastPlayed, title, progress, genre
 
+  // Edit Library Mode
+  const [editMode, setEditMode] = useState(false);
+  const [selectedStories, setSelectedStories] = useState(new Set());
+
   // Initialize
   useEffect(() => {
     setCharacters(storage.getCharacters());
@@ -2342,8 +2360,12 @@ export default function Loomiverse() {
     setCollections(storage.getCollections());
     setOpenaiKey(storage.getApiKey('openai'));
     setAnthropicKey(storage.getApiKey('anthropic'));
+    setElevenLabsKey(storage.getApiKey('elevenlabs') || '');
     setPrimaryProvider(storage.getSetting('primaryProvider', 'openai'));
     setLibraryTheme(storage.getSetting('libraryTheme', 'ancientCastle'));
+    setSelectedVoice(storage.getSetting('selectedVoice', 'alloy'));
+    setAutoNarrate(storage.getSetting('autoNarrate', false));
+    setNarrationSpeed(storage.getSetting('narrationSpeed', 1.0));
     // Reconcile stats with actual data to fix any mismatches
     const reconciledProfile = storage.reconcileStats();
     setUserProfile(reconciledProfile);
@@ -2518,8 +2540,12 @@ export default function Loomiverse() {
   const saveSettings = () => {
     storage.saveApiKey('openai', openaiKey);
     storage.saveApiKey('anthropic', anthropicKey);
+    storage.saveApiKey('elevenlabs', elevenLabsKey);
     storage.saveSetting('primaryProvider', primaryProvider);
     storage.saveSetting('libraryTheme', libraryTheme);
+    storage.saveSetting('selectedVoice', selectedVoice);
+    storage.saveSetting('autoNarrate', autoNarrate);
+    storage.saveSetting('narrationSpeed', narrationSpeed);
     setShowSettings(false);
   };
 
@@ -2636,18 +2662,23 @@ export default function Loomiverse() {
   };
 
   // Select genre and story
-  // Generate unique story premise via AI - NOW USES AUTHOR STYLES!
-  const generatePremise = async (genre) => {
+  // Generate unique story premise via AI - NOW USES AUTHOR STYLES AND AI AUTHORS!
+  const generatePremise = async (genre, aiAuthor = null) => {
     const genreData = genres[genre];
     const providers = primaryProvider === 'openai'
       ? ['openai', 'anthropic']
       : ['anthropic', 'openai'];
 
+    // USE AI AUTHOR IF SELECTED (from Writers Room), otherwise fall back to iOS author styles
+    const aiAuthorPrompt = aiAuthor ? buildAuthorPrompt(aiAuthor) : '';
+
     // SELECT AUTHOR STYLE FIRST - This is the key fix!
-    const author = getRandomAuthorForGenre(genreData.name);
-    const authorGuidance = author?.description
-      ? `\n\nYou are channeling the creative spirit of ${author.name}. ${author.description}\n\nLet this author's sensibilities influence the TYPE of story you create - their themes, their concerns, their unique perspective on the genre.`
-      : '';
+    const author = aiAuthor ? null : getRandomAuthorForGenre(genreData.name);
+    const authorGuidance = aiAuthor
+      ? `\n\n${aiAuthorPrompt}`
+      : (author?.description
+        ? `\n\nYou are channeling the creative spirit of ${author.name}. ${author.description}\n\nLet this author's sensibilities influence the TYPE of story you create - their themes, their concerns, their unique perspective on the genre.`
+        : '');
 
     const systemPrompt = `You are a master storyteller creating a ${genreData.name} story premise.${authorGuidance}
 
@@ -3029,6 +3060,13 @@ This is casual chat, not an interview. Be real.`;
     setScreen('characterChat');
   };
 
+  // Write a story with character as narrator (their psychology colors the narrative)
+  const writeAsAuthor = (character) => {
+    setNarratorCharacter(character);
+    setScreen('genre'); // Go to genre selection, story will use this character's perspective
+  };
+
+  // When genre is selected, start story generation immediately (original flow)
   const selectGenre = async (genre) => {
     setSelectedGenre(genre);
     setLoading(true);
@@ -3039,14 +3077,13 @@ This is casual chat, not an interview. Be real.`;
 
     const genreData = genres[genre];
 
-    // Generate unique AI premise (API call #1) - NOW INCLUDES AUTHOR STYLE!
+    // Generate unique AI premise using original author styles
     const premise = await generatePremise(genre);
     setCurrentStory(premise);
 
     const bible = new StoryBible(premise.title, genreData.name, premise.logline);
 
-    // Use the SAME author that influenced the premise (returned from generatePremise)
-    // This ensures consistency - the author who inspired the premise also guides the story
+    // Use the author style from premise (original iOS author styles)
     if (premise.author) {
       bible.setAuthorStyle(premise.author);
       console.log(`Using author style from premise: ${premise.author.name}`);
@@ -3405,6 +3442,80 @@ Write a brief 2-3 sentence narrative response to what the reader did/said. Keep 
     setInteractiveLoading(false);
   };
 
+  // Narrator mode - user guides the story as the narrator/author
+  const handleNarratorResponse = async () => {
+    if (!narratorInput.trim() || !storyBible || narratorLoading) return;
+
+    const narratorDirection = narratorInput.trim();
+    setNarratorInput('');
+    setNarratorLoading(true);
+
+    // Record narrator direction
+    const bible = storyBible.clone();
+    bible.recordChoice(bible.currentChapter, 'narrator', narratorDirection);
+    setStoryBible(bible);
+
+    const providers = primaryProvider === 'openai'
+      ? ['openai', 'anthropic']
+      : ['anthropic', 'openai'];
+
+    const prompt = `You are the narrator of a ${storyBible.genre} story. The reader is now acting as CO-AUTHOR, giving you direction for what should happen next.
+
+STORY: "${storyBible.title}"
+CURRENT SCENE: ${chapterData.title}
+RECENT STORY:
+${chapterData.content.slice(-800)}
+
+THE READER'S NARRATIVE DIRECTION: "${narratorDirection}"
+
+Following their direction, write 3-4 paragraphs that seamlessly continue the story. Incorporate their suggested direction naturally into the narrative. You're the prose writer - they're the idea person. Make it dramatic, immersive, and flow naturally from what came before.
+
+IMPORTANT:
+- Don't acknowledge them as a separate entity. Just write the story.
+- Interpret their direction creatively but faithfully.
+- Maintain the genre's tone and style.
+- Keep characters consistent with their established personalities.`;
+
+    for (const providerKey of providers) {
+      const provider = AI_PROVIDERS[providerKey];
+      try {
+        const response = await fetch(provider.endpoint, {
+          method: 'POST',
+          headers: provider.formatHeaders(),
+          body: JSON.stringify(provider.formatRequest(
+            `You are an expert ${storyBible.genre} writer. Write immersive, dramatic prose. No meta-commentary.`,
+            prompt
+          ))
+        });
+
+        if (!response.ok) continue;
+        const data = await response.json();
+        const text = provider.extractResponse(data);
+
+        if (text) {
+          // Append the story continuation
+          setChapterData(prev => ({
+            ...prev,
+            content: prev.content + '\n\n' + text
+          }));
+          setNarratorLoading(false);
+          autoSaveStory(bible);
+          return;
+        }
+      } catch (e) {
+        console.error(`${providerKey} narrator mode failed:`, e);
+        continue;
+      }
+    }
+
+    // Fallback
+    setChapterData(prev => ({
+      ...prev,
+      content: prev.content + '\n\n*The story awaits your direction...*'
+    }));
+    setNarratorLoading(false);
+  };
+
   // Next chapter
   const nextChapter = async () => {
     if (!storyBible) return;
@@ -3505,6 +3616,204 @@ Write a brief 2-3 sentence narrative response to what the reader did/said. Keep 
       setShowBookmarks(false);
       setScreen('reading');
     }
+  };
+
+  // Export story to PDF
+  const exportStoryToPDF = (storyId) => {
+    const data = storage.loadStory(storyId);
+    if (!data || !data.bible) {
+      alert('Story not found');
+      return;
+    }
+
+    const bible = data.bible;
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const margin = 20;
+    const maxWidth = pageWidth - (margin * 2);
+    let yPos = margin;
+
+    // Helper to add new page if needed
+    const checkNewPage = (height = 20) => {
+      if (yPos + height > doc.internal.pageSize.getHeight() - margin) {
+        doc.addPage();
+        yPos = margin;
+        return true;
+      }
+      return false;
+    };
+
+    // Cover page
+    doc.setFontSize(32);
+    doc.setFont('helvetica', 'bold');
+    const titleLines = doc.splitTextToSize(bible.title || 'Untitled Story', maxWidth);
+    doc.text(titleLines, pageWidth / 2, 80, { align: 'center' });
+
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'italic');
+    doc.text(`A ${bible.genre || 'Story'}`, pageWidth / 2, 100, { align: 'center' });
+
+    if (bible.logline) {
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'normal');
+      const loglineLines = doc.splitTextToSize(bible.logline, maxWidth - 40);
+      doc.text(loglineLines, pageWidth / 2, 120, { align: 'center' });
+    }
+
+    doc.setFontSize(10);
+    doc.text('Created with Loomiverse', pageWidth / 2, 270, { align: 'center' });
+
+    // Chapters
+    const chapters = data.generatedChapters || [];
+    if (chapters.length > 0) {
+      chapters.forEach((chapter, i) => {
+        doc.addPage();
+        yPos = margin;
+
+        // Chapter title
+        doc.setFontSize(18);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`Chapter ${i + 1}: ${chapter.title || ''}`, margin, yPos);
+        yPos += 15;
+
+        // Chapter content
+        doc.setFontSize(11);
+        doc.setFont('helvetica', 'normal');
+        const paragraphs = (chapter.content || '').split('\n\n');
+
+        paragraphs.forEach(para => {
+          const lines = doc.splitTextToSize(para.trim(), maxWidth);
+          lines.forEach(line => {
+            checkNewPage();
+            doc.text(line, margin, yPos);
+            yPos += 6;
+          });
+          yPos += 4; // Paragraph spacing
+        });
+      });
+    } else if (data.currentChapter) {
+      // Just current chapter if no generated chapters array
+      doc.addPage();
+      yPos = margin;
+
+      doc.setFontSize(18);
+      doc.setFont('helvetica', 'bold');
+      doc.text(`Chapter ${bible.currentChapter || 1}: ${data.currentChapter.title || ''}`, margin, yPos);
+      yPos += 15;
+
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'normal');
+      const paragraphs = (data.currentChapter.content || '').split('\n\n');
+
+      paragraphs.forEach(para => {
+        const lines = doc.splitTextToSize(para.trim(), maxWidth);
+        lines.forEach(line => {
+          checkNewPage();
+          doc.text(line, margin, yPos);
+          yPos += 6;
+        });
+        yPos += 4;
+      });
+    }
+
+    // Character appendix if we have characters
+    if (bible.characters && bible.characters.length > 0) {
+      doc.addPage();
+      yPos = margin;
+
+      doc.setFontSize(18);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Characters', margin, yPos);
+      yPos += 15;
+
+      bible.characters.forEach(char => {
+        checkNewPage(30);
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`${char.name || 'Unknown'} - ${char.role || 'Character'}`, margin, yPos);
+        yPos += 7;
+
+        if (char.psychology?.appearance) {
+          doc.setFontSize(10);
+          doc.setFont('helvetica', 'normal');
+          const descLines = doc.splitTextToSize(char.psychology.appearance, maxWidth);
+          descLines.forEach(line => {
+            checkNewPage();
+            doc.text(line, margin, yPos);
+            yPos += 5;
+          });
+        }
+        yPos += 8;
+      });
+    }
+
+    // Save the PDF
+    const filename = `${(bible.title || 'story').replace(/[^a-z0-9]/gi, '_').toLowerCase()}.pdf`;
+    doc.save(filename);
+
+    // Show success toast
+    const toast = document.createElement('div');
+    toast.className = 'fixed bottom-4 right-4 bg-emerald-600 text-white px-4 py-2 rounded-lg shadow-lg z-50 animate-fade-in flex items-center gap-2';
+    toast.textContent = 'PDF downloaded!';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+  };
+
+  // Edit Mode: Toggle story selection
+  const toggleStorySelection = (storyId) => {
+    setSelectedStories(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(storyId)) {
+        newSet.delete(storyId);
+      } else {
+        newSet.add(storyId);
+      }
+      return newSet;
+    });
+  };
+
+  // Edit Mode: Select all stories
+  const selectAllStories = () => {
+    if (selectedStories.size === savedStories.length) {
+      setSelectedStories(new Set());
+    } else {
+      setSelectedStories(new Set(savedStories.map(s => s.id)));
+    }
+  };
+
+  // Edit Mode: Bulk delete selected stories
+  const bulkDeleteStories = () => {
+    if (selectedStories.size === 0) return;
+
+    setConfirmModal({
+      title: 'Delete Selected Stories',
+      message: `Are you sure you want to delete ${selectedStories.size} stor${selectedStories.size === 1 ? 'y' : 'ies'}? This cannot be undone.`,
+      confirmText: 'Delete All',
+      confirmStyle: 'danger',
+      onConfirm: () => {
+        selectedStories.forEach(id => storage.deleteStory(id));
+        setSavedStories(storage.listStories());
+        setSelectedStories(new Set());
+        setEditMode(false);
+        setConfirmModal(null);
+      }
+    });
+  };
+
+  // Edit Mode: Bulk archive selected stories
+  const bulkArchiveStories = () => {
+    if (selectedStories.size === 0) return;
+    selectedStories.forEach(id => storage.archiveStory(id));
+    setSavedStories(storage.listStories());
+    setArchivedStories(storage.listArchivedStories());
+    setSelectedStories(new Set());
+    setEditMode(false);
+  };
+
+  // Edit Mode: Bulk export selected stories
+  const bulkExportStories = () => {
+    if (selectedStories.size === 0) return;
+    selectedStories.forEach(id => exportStoryToPDF(id));
   };
 
   const romans = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
@@ -3665,6 +3974,100 @@ Write a brief 2-3 sentence narrative response to what the reader did/said. Keep 
                 />
               </div>
 
+              {/* Audio Narration Settings */}
+              <div className="pt-4 border-t border-gray-800">
+                <h3 className="text-sm font-bold text-amber-500 mb-3 flex items-center gap-2">
+                  <span>🎧</span> Audio Narration
+                </h3>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">ElevenLabs API Key</label>
+                    <input
+                      type="password"
+                      value={elevenLabsKey}
+                      onChange={(e) => setElevenLabsKey(e.target.value)}
+                      placeholder="Enter your ElevenLabs API key"
+                      className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-gray-100"
+                    />
+                    <p className="text-xs text-gray-600 mt-1">
+                      Get a free key at <a href="https://elevenlabs.io" target="_blank" rel="noopener noreferrer" className="text-amber-500 hover:underline">elevenlabs.io</a>
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">Narrator Voice</label>
+                    <select
+                      value={selectedVoice}
+                      onChange={(e) => setSelectedVoice(e.target.value)}
+                      className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-gray-100"
+                    >
+                      <optgroup label="Male Voices">
+                        <option value="adam">Adam - Deep & Authoritative</option>
+                        <option value="antoni">Antoni - Warm & Friendly</option>
+                        <option value="arnold">Arnold - Bold & Dramatic</option>
+                        <option value="josh">Josh - Young & Energetic</option>
+                        <option value="sam">Sam - Calm & Measured</option>
+                      </optgroup>
+                      <optgroup label="Female Voices">
+                        <option value="rachel">Rachel - Warm & Expressive</option>
+                        <option value="domi">Domi - Confident & Clear</option>
+                        <option value="bella">Bella - Soft & Gentle</option>
+                        <option value="elli">Elli - Youthful & Bright</option>
+                        <option value="emily">Emily - Soothing & Elegant</option>
+                      </optgroup>
+                      <optgroup label="Narrator Voices">
+                        <option value="alloy">Alloy - Neutral Narrator</option>
+                        <option value="storyteller">Storyteller - Classic</option>
+                      </optgroup>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">
+                      Narration Speed: {narrationSpeed.toFixed(1)}x
+                    </label>
+                    <input
+                      type="range"
+                      min="0.5"
+                      max="2.0"
+                      step="0.1"
+                      value={narrationSpeed}
+                      onChange={(e) => setNarrationSpeed(parseFloat(e.target.value))}
+                      className="w-full accent-amber-500"
+                    />
+                    <div className="flex justify-between text-xs text-gray-600">
+                      <span>Slow</span>
+                      <span>Normal</span>
+                      <span>Fast</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <label className="text-sm text-gray-300">Auto-narrate chapters</label>
+                      <p className="text-xs text-gray-600">Automatically read each chapter aloud</p>
+                    </div>
+                    <button
+                      onClick={() => setAutoNarrate(!autoNarrate)}
+                      className={`w-12 h-6 rounded-full transition-colors ${
+                        autoNarrate ? 'bg-amber-500' : 'bg-gray-700'
+                      }`}
+                    >
+                      <div className={`w-5 h-5 rounded-full bg-white transition-transform ${
+                        autoNarrate ? 'translate-x-6' : 'translate-x-0.5'
+                      }`} />
+                    </button>
+                  </div>
+
+                  {!elevenLabsKey && (
+                    <p className="text-xs text-amber-500/70 bg-amber-500/10 p-2 rounded">
+                      Add your ElevenLabs API key to enable audio narration. The feature will appear on the reading screen once configured.
+                    </p>
+                  )}
+                </div>
+              </div>
+
               <button
                 onClick={saveSettings}
                 className="w-full py-2 bg-amber-600 hover:bg-amber-500 text-gray-950 font-bold rounded"
@@ -3781,9 +4184,9 @@ Write a brief 2-3 sentence narrative response to what the reader did/said. Keep 
           <div className="flex justify-between items-center mb-8">
             <div className="flex items-center gap-3">
               <img
-                src="/images/logos/loomiverse-logo.png"
+                src="/images/logos/logo-128.png"
                 alt="Loomiverse"
-                className="w-12 h-12 object-contain"
+                className="w-12 h-12 object-contain rounded-full"
               />
               <div>
                 <h1
@@ -4287,6 +4690,13 @@ Write a brief 2-3 sentence narrative response to what the reader did/said. Keep 
                         >
                           <MessageCircle className="w-4 h-4" /> Chat
                         </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); writeAsAuthor(char); }}
+                          className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-gray-950 rounded flex items-center gap-2 text-sm font-medium"
+                          title="Write a story through this character's perspective"
+                        >
+                          <Pencil className="w-4 h-4" /> Write as Author
+                        </button>
                         {!char.simulated && (
                           <button
                             onClick={(e) => { e.stopPropagation(); simulateChildhood(char); }}
@@ -4352,22 +4762,88 @@ Write a brief 2-3 sentence narrative response to what the reader did/said. Keep 
                   : 'Continue your adventures or start fresh'}
               </p>
             </div>
-            {(savedStories.length > 0 || archivedStories.length > 0) && (
-              <button
-                onClick={() => setShowArchivedStories(!showArchivedStories)}
-                className={`px-4 py-2 rounded flex items-center gap-2 text-sm transition-all ${
-                  showArchivedStories
-                    ? 'bg-gray-700 text-gray-200'
-                    : 'border border-gray-700 text-gray-400 hover:border-gray-500'
-                }`}
-              >
-                <Archive className="w-4 h-4" />
-                {showArchivedStories
-                  ? `Active Stories (${savedStories.length})`
-                  : `Archived (${archivedStories.length})`}
-              </button>
-            )}
+            <div className="flex gap-2">
+              {/* Edit Mode Toggle */}
+              {savedStories.length > 0 && !showArchivedStories && (
+                <button
+                  onClick={() => {
+                    setEditMode(!editMode);
+                    setSelectedStories(new Set());
+                  }}
+                  className={`px-4 py-2 rounded flex items-center gap-2 text-sm transition-all ${
+                    editMode
+                      ? 'bg-amber-600 text-gray-950 font-bold'
+                      : 'border border-gray-700 text-gray-400 hover:border-gray-500'
+                  }`}
+                >
+                  <Pencil className="w-4 h-4" />
+                  {editMode ? 'Done' : 'Edit'}
+                </button>
+              )}
+              {(savedStories.length > 0 || archivedStories.length > 0) && (
+                <button
+                  onClick={() => setShowArchivedStories(!showArchivedStories)}
+                  className={`px-4 py-2 rounded flex items-center gap-2 text-sm transition-all ${
+                    showArchivedStories
+                      ? 'bg-gray-700 text-gray-200'
+                      : 'border border-gray-700 text-gray-400 hover:border-gray-500'
+                  }`}
+                >
+                  <Archive className="w-4 h-4" />
+                  {showArchivedStories
+                    ? `Active Stories (${savedStories.length})`
+                    : `Archived (${archivedStories.length})`}
+                </button>
+              )}
+            </div>
           </div>
+
+          {/* Edit Mode Bulk Actions Bar */}
+          {editMode && savedStories.length > 0 && (
+            <div className="mb-6 p-4 bg-gray-900/80 border border-gray-700 rounded-xl flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={selectAllStories}
+                  className="flex items-center gap-2 text-sm text-gray-300 hover:text-white"
+                >
+                  {selectedStories.size === savedStories.length ? (
+                    <CheckSquare className="w-5 h-5 text-amber-500" />
+                  ) : (
+                    <Square className="w-5 h-5" />
+                  )}
+                  Select All
+                </button>
+                <span className="text-gray-500 text-sm">
+                  {selectedStories.size} selected
+                </span>
+              </div>
+              {selectedStories.size > 0 && (
+                <div className="flex gap-2">
+                  <button
+                    onClick={bulkExportStories}
+                    className="px-3 py-1.5 text-sm border border-emerald-600 text-emerald-400 rounded hover:bg-emerald-600 hover:text-white transition-colors flex items-center gap-2"
+                  >
+                    <Download className="w-4 h-4" />
+                    Export
+                  </button>
+                  <button
+                    onClick={bulkArchiveStories}
+                    className="px-3 py-1.5 text-sm border border-gray-600 text-gray-300 rounded hover:bg-gray-600 transition-colors flex items-center gap-2"
+                  >
+                    <Archive className="w-4 h-4" />
+                    Archive
+                  </button>
+                  <button
+                    onClick={bulkDeleteStories}
+                    className="px-3 py-1.5 text-sm border border-red-600 text-red-400 rounded hover:bg-red-600 hover:text-white transition-colors flex items-center gap-2"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Delete
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Search and Sort Controls */}
           {(savedStories.length > 0 || archivedStories.length > 0) && (
@@ -4532,9 +5008,28 @@ Write a brief 2-3 sentence narrative response to what the reader did/said. Keep 
                       className={`flex gap-6 p-4 border rounded-lg transition-all ${
                         showArchivedStories
                           ? 'border-gray-700 bg-gray-900/30 opacity-75 hover:opacity-100'
-                          : 'border-gray-800 bg-gray-900/50 hover:border-gray-700'
+                          : editMode && selectedStories.has(story.id)
+                            ? 'border-amber-500 bg-amber-500/10'
+                            : 'border-gray-800 bg-gray-900/50 hover:border-gray-700'
                       }`}
+                      onClick={editMode ? () => toggleStorySelection(story.id) : undefined}
                     >
+                      {/* Edit Mode Checkbox */}
+                      {editMode && (
+                        <div className="flex items-center">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); toggleStorySelection(story.id); }}
+                            className="p-1"
+                          >
+                            {selectedStories.has(story.id) ? (
+                              <CheckSquare className="w-6 h-6 text-amber-500" />
+                            ) : (
+                              <Square className="w-6 h-6 text-gray-500 hover:text-gray-300" />
+                            )}
+                          </button>
+                        </div>
+                      )}
+
                       {/* Book Cover Placeholder */}
                       <div className={`w-32 h-44 rounded-lg bg-gradient-to-br ${gradient} flex-shrink-0 flex flex-col justify-end p-3 shadow-lg ${showArchivedStories ? 'grayscale-[30%]' : ''}`}>
                         <h4 className="text-white font-bold text-sm leading-tight drop-shadow-lg">
@@ -4681,6 +5176,18 @@ Write a brief 2-3 sentence narrative response to what the reader did/said. Keep 
                                         );
                                       })}
                                     </div>
+
+                                    {/* Export PDF */}
+                                    <button
+                                      onClick={() => {
+                                        exportStoryToPDF(story.id);
+                                        setShowStoryMenu(null);
+                                      }}
+                                      className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-gray-800 transition-colors text-gray-300"
+                                    >
+                                      <Download className="w-3 h-3" />
+                                      <span>Export PDF</span>
+                                    </button>
 
                                     {/* Archive */}
                                     <button
@@ -4889,6 +5396,22 @@ Write a brief 2-3 sentence narrative response to what the reader did/said. Keep 
             <div className="mb-6 text-center pt-12 animate-cascade stagger-1">
               <p className="text-gray-500 text-sm">Playing as:</p>
               <p className="text-amber-400 font-bold text-glow">{selectedCharacter.name}</p>
+            </div>
+          )}
+
+          {narratorCharacter && !selectedCharacter && (
+            <div className="mb-6 text-center pt-12 animate-cascade stagger-1">
+              <p className="text-gray-500 text-sm flex items-center justify-center gap-2">
+                <Pencil className="w-3 h-3" /> Narrated by:
+              </p>
+              <p className="text-amber-400 font-bold text-glow">{narratorCharacter.name}</p>
+              <p className="text-xs text-gray-600 mt-1">Their perspective will color the story</p>
+              <button
+                onClick={() => setNarratorCharacter(null)}
+                className="mt-2 text-xs text-gray-500 hover:text-gray-300"
+              >
+                × Clear narrator
+              </button>
             </div>
           )}
 
@@ -5246,19 +5769,17 @@ Write a brief 2-3 sentence narrative response to what the reader did/said. Keep 
                     </span>
                   )}
                 </button>
-                <div className="w-32 h-1 bg-gray-800 rounded">
-                  <div 
-                    className="h-full bg-amber-500 rounded transition-all" 
-                    style={{ width: `${(storyBible.currentChapter / storyBible.totalChapters) * 100}%` }} 
-                  />
+                <div className="flex items-center gap-3 bg-gray-900/50 px-3 py-1.5 rounded-full">
+                  <div className="w-24 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full transition-all duration-300"
+                      style={{ width: `${(storyBible.currentChapter / storyBible.totalChapters) * 100}%` }}
+                    />
+                  </div>
+                  <span className="text-gray-400 text-xs font-medium">
+                    {storyBible.currentChapter}/{storyBible.totalChapters}
+                  </span>
                 </div>
-                <span className="text-gray-500 text-xs">
-                  {storyBible.currentChapter}/{storyBible.totalChapters}
-                </span>
-                <span className="text-gray-700 text-xs mx-2">•</span>
-                <span className="text-gray-500 text-xs">
-                  ~{Math.max(1, Math.round(chapterData.content?.split(/\s+/).length / 200 || 7))} min read
-                </span>
               </div>
             </div>
           </header>
@@ -5266,11 +5787,33 @@ Write a brief 2-3 sentence narrative response to what the reader did/said. Keep 
 
           {/* Content */}
           <article className="max-w-2xl mx-auto px-6 pt-28 pb-24">
-            <h2 className="text-4xl font-bold text-center mb-8">{chapterData.title}</h2>
-            
+            {/* Decorative chapter header */}
+            <div className="text-center mb-12">
+              <div className="flex items-center justify-center gap-4 mb-4">
+                <div className="w-16 h-px bg-gradient-to-r from-transparent via-amber-500/50 to-transparent" />
+                <span className="text-amber-500/60 text-xs tracking-[0.3em] uppercase">
+                  Chapter {storyBible.currentChapter}
+                </span>
+                <div className="w-16 h-px bg-gradient-to-l from-transparent via-amber-500/50 to-transparent" />
+              </div>
+              <h2 className="text-4xl font-bold text-white">{chapterData.title}</h2>
+              <div className="mt-4 flex items-center justify-center gap-2 text-gray-600 text-xs">
+                <span>{Math.max(1, Math.round(chapterData.content?.split(/\s+/).length / 200 || 7))} min read</span>
+                <span>•</span>
+                <span>{chapterData.content?.split(/\s+/).length || 0} words</span>
+              </div>
+            </div>
+
             <div className="prose prose-invert prose-lg max-w-none">
               {chapterData.content.split('\n\n').map((para, i) => (
-                <p key={i} className="mb-6 text-gray-300 leading-relaxed first-letter:text-5xl first-letter:font-bold first-letter:text-amber-500 first-letter:float-left first-letter:mr-2">
+                <p
+                  key={i}
+                  className={`mb-6 text-gray-300 leading-relaxed ${
+                    i === 0
+                      ? 'first-letter:text-5xl first-letter:font-bold first-letter:text-amber-500 first-letter:float-left first-letter:mr-3 first-letter:leading-none'
+                      : ''
+                  }`}
+                >
                   {para}
                 </p>
               ))}
@@ -5279,12 +5822,12 @@ Write a brief 2-3 sentence narrative response to what the reader did/said. Keep 
             {/* Choices */}
             {!choiceMade && chapterData.choices && (
               <div className="mt-12 pt-8 border-t border-gray-800">
-                {/* Mode Toggle */}
-                <div className="flex justify-center gap-4 mb-6">
+                {/* Mode Toggle - Three modes */}
+                <div className="flex justify-center gap-2 mb-6 flex-wrap">
                   <button
-                    onClick={() => setInteractiveMode(false)}
+                    onClick={() => setReadingMode('choices')}
                     className={`px-4 py-2 rounded-lg text-sm transition-all ${
-                      !interactiveMode
+                      readingMode === 'choices'
                         ? 'bg-amber-500 text-gray-950 font-bold'
                         : 'text-gray-500 hover:text-white'
                     }`}
@@ -5292,18 +5835,29 @@ Write a brief 2-3 sentence narrative response to what the reader did/said. Keep 
                     Choose Path
                   </button>
                   <button
-                    onClick={() => setInteractiveMode(true)}
+                    onClick={() => setReadingMode('interactive')}
                     className={`px-4 py-2 rounded-lg text-sm transition-all flex items-center gap-2 ${
-                      interactiveMode
+                      readingMode === 'interactive'
                         ? 'bg-purple-500 text-white font-bold'
                         : 'text-gray-500 hover:text-white'
                     }`}
                   >
-                    <Pencil className="w-3 h-3" /> Write Your Own
+                    <Pencil className="w-3 h-3" /> Write Action
+                  </button>
+                  <button
+                    onClick={() => setReadingMode('narrator')}
+                    className={`px-4 py-2 rounded-lg text-sm transition-all flex items-center gap-2 ${
+                      readingMode === 'narrator'
+                        ? 'bg-rose-500 text-white font-bold'
+                        : 'text-gray-500 hover:text-white'
+                    }`}
+                  >
+                    <BookOpen className="w-3 h-3" /> Be Narrator
                   </button>
                 </div>
 
-                {!interactiveMode ? (
+                {/* Mode: Choose Path */}
+                {readingMode === 'choices' && (
                   <>
                     <p className="text-center text-amber-500 font-bold mb-6">What happens next?</p>
                     <div className="space-y-3">
@@ -5322,10 +5876,13 @@ Write a brief 2-3 sentence narrative response to what the reader did/said. Keep 
                       ))}
                     </div>
                   </>
-                ) : (
+                )}
+
+                {/* Mode: Write Action (as character) */}
+                {readingMode === 'interactive' && (
                   <div className="max-w-lg mx-auto">
                     <p className="text-center text-purple-400 font-bold mb-4">What do you do?</p>
-                    <p className="text-center text-gray-500 text-sm mb-6">Type your action, dialogue, or response to the story</p>
+                    <p className="text-center text-gray-500 text-sm mb-6">Type your action, dialogue, or response as the protagonist</p>
                     <div className="flex gap-3">
                       <input
                         type="text"
@@ -5353,6 +5910,54 @@ Write a brief 2-3 sentence narrative response to what the reader did/said. Keep 
                     </p>
                   </div>
                 )}
+
+                {/* Mode: Be the Narrator (guide the story) */}
+                {readingMode === 'narrator' && (
+                  <div className="max-w-lg mx-auto">
+                    <p className="text-center text-rose-400 font-bold mb-4">Direct the Story</p>
+                    <p className="text-center text-gray-500 text-sm mb-6">Describe what happens next. Add plot twists, introduce characters, change the weather...</p>
+                    <div className="flex gap-3">
+                      <textarea
+                        value={narratorInput}
+                        onChange={(e) => setNarratorInput(e.target.value)}
+                        placeholder="A mysterious stranger enters the tavern..."
+                        disabled={narratorLoading}
+                        rows={3}
+                        className="flex-1 px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-600 focus:border-rose-500 focus:outline-none transition-colors disabled:opacity-50 resize-none"
+                      />
+                    </div>
+                    <div className="flex justify-between items-center mt-4">
+                      <div className="flex gap-2 flex-wrap">
+                        {['A storm approaches', 'Enemy appears', 'Unexpected ally', 'Secret revealed'].map(suggestion => (
+                          <button
+                            key={suggestion}
+                            onClick={() => setNarratorInput(suggestion)}
+                            className="text-xs px-2 py-1 bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white rounded transition-colors"
+                          >
+                            {suggestion}
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        onClick={handleNarratorResponse}
+                        disabled={narratorLoading || !narratorInput.trim()}
+                        className="px-6 py-2 bg-rose-600 hover:bg-rose-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-colors flex items-center gap-2"
+                      >
+                        {narratorLoading ? (
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <>
+                            <Sparkles className="w-4 h-4" />
+                            Narrate
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <p className="text-center text-gray-600 text-xs mt-4">
+                      You're the co-author. The AI will write your ideas into the story.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
@@ -5368,6 +5973,27 @@ Write a brief 2-3 sentence narrative response to what the reader did/said. Keep 
               </div>
             )}
           </article>
+
+          {/* Scroll to top button */}
+          <button
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+            className="fixed bottom-6 left-6 z-40 w-10 h-10 rounded-full border border-gray-700 bg-gray-900 hover:border-amber-500 text-gray-500 hover:text-amber-500 flex items-center justify-center transition-all opacity-60 hover:opacity-100"
+            title="Scroll to top"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
+            </svg>
+          </button>
+
+          {/* Reading progress side bar */}
+          <div className="fixed left-0 top-0 h-full w-1 z-40 hidden lg:block">
+            <div className="h-full bg-gray-900/50">
+              <div
+                className="w-full bg-gradient-to-b from-amber-500 to-amber-600 transition-all duration-300"
+                style={{ height: `${Math.min(100, (storyBible.currentChapter / storyBible.totalChapters) * 100)}%` }}
+              />
+            </div>
+          </div>
 
           {/* Story Bible Toggle */}
           <button
