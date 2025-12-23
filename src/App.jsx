@@ -1,8 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Save, Library, Globe, Upload, BookOpen, X, Settings, User, Sparkles, Play, ChevronRight, Heart, Brain, Home, Users, Zap, Pencil, Archive, Bookmark, FolderPlus, MoreVertical, Trash2, MessageCircle, Send } from 'lucide-react';
+import { Save, Library, Globe, Upload, BookOpen, X, Settings, User, Sparkles, Play, ChevronRight, Heart, Brain, Home, Users, Zap, Pencil, Archive, Bookmark, FolderPlus, MoreVertical, Trash2, MessageCircle, Send, Cloud, CloudOff, LogIn, LogOut } from 'lucide-react';
 
 // Import author styles from iOS app (25+ writing styles)
 import { buildAuthorStylePrompt, getRandomAuthorForGenre } from './data/authorStyles.js';
+
+// Import Supabase for cloud storage
+import { supabase } from './lib/supabase.js';
+import { cloudStorage } from './lib/cloudStorage.js';
 
 // ============================================
 // SECTION 1: CHARACTER GENERATION DATA
@@ -1134,18 +1138,24 @@ class StorageManager {
     this.prefix = 'loomiverse_';
   }
 
-  // API Keys
+  // API Keys (local only - not synced to cloud for security)
   saveApiKey(provider, key) {
     localStorage.setItem(this.prefix + 'apikey_' + provider, key);
   }
-  
+
   getApiKey(provider) {
     return localStorage.getItem(this.prefix + 'apikey_' + provider) || '';
   }
 
-  // Stories
+  // Stories - Hybrid: localStorage (instant) + cloud (backup)
   saveStory(id, data) {
+    // 1. Save to localStorage immediately (fast, works offline)
     localStorage.setItem(this.prefix + 'story_' + id, JSON.stringify(data));
+
+    // 2. Sync to cloud in background (if logged in)
+    cloudStorage.saveStory(id, data).catch(e => {
+      console.log('[Storage] Cloud sync queued for later');
+    });
   }
   
   loadStory(id) {
@@ -1210,7 +1220,13 @@ class StorageManager {
   }
 
   deleteStory(id) {
+    // 1. Delete from localStorage
     localStorage.removeItem(this.prefix + 'story_' + id);
+
+    // 2. Delete from cloud
+    cloudStorage.deleteStory(id).catch(e => {
+      console.log('[Storage] Cloud delete queued for later');
+    });
   }
 
   // Bookmarks for stories
@@ -1245,11 +1261,11 @@ class StorageManager {
     return true;
   }
 
-  // Characters - Enhanced with origin tracking
+  // Characters - Enhanced with origin tracking + cloud sync
   saveCharacter(char, origin = 'user', storyId = null, storyTitle = null) {
     const chars = this.getCharacters();
     const idx = chars.findIndex(c => c.id === char.id);
-    
+
     // Add origin metadata if not present
     const charWithMeta = {
       ...char,
@@ -1258,10 +1274,21 @@ class StorageManager {
       originStoryTitle: char.originStoryTitle || storyTitle,
       savedAt: char.savedAt || new Date().toISOString()
     };
-    
+
     if (idx >= 0) chars[idx] = charWithMeta;
     else chars.push(charWithMeta);
+
+    // 1. Save to localStorage
     localStorage.setItem(this.prefix + 'characters', JSON.stringify(chars));
+
+    // 2. Sync to cloud
+    cloudStorage.saveCharacter({
+      ...charWithMeta,
+      storyId,
+      storyTitle
+    }).catch(e => {
+      console.log('[Storage] Character cloud sync queued');
+    });
   }
   
   getCharacters(filter = 'all') {
@@ -1323,7 +1350,13 @@ class StorageManager {
   }
 
   saveUserProfile(profile) {
+    // 1. Save to localStorage
     localStorage.setItem(this.prefix + 'user_profile', JSON.stringify(profile));
+
+    // 2. Sync to cloud
+    cloudStorage.saveProfile(profile).catch(e => {
+      console.log('[Storage] Profile cloud sync queued');
+    });
   }
 
   getUserProfile() {
@@ -1447,7 +1480,13 @@ class StorageManager {
   }
 
   saveCollections(collections) {
+    // 1. Save to localStorage
     localStorage.setItem(this.prefix + 'collections', JSON.stringify(collections));
+
+    // 2. Sync to cloud
+    cloudStorage.saveCollections(collections).catch(e => {
+      console.log('[Storage] Collections cloud sync queued');
+    });
   }
 
   createCollection(name, icon = '📚') {
