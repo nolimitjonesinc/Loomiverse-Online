@@ -195,5 +195,131 @@ CREATE TRIGGER on_auth_user_created
   FOR EACH ROW EXECUTE FUNCTION handle_new_user();
 
 -- ============================================
+-- 5. FRIENDS MODE - STORY SESSIONS
+-- Live multiplayer story sessions
+-- ============================================
+
+-- Story rooms for group storytelling
+CREATE TABLE IF NOT EXISTS loom_sessions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  host_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  code TEXT UNIQUE NOT NULL, -- 6-char join code
+  story_id UUID REFERENCES loom_stories(id) ON DELETE SET NULL,
+  story_data JSONB, -- current story state
+  status TEXT DEFAULT 'waiting' CHECK (status IN ('waiting', 'active', 'paused', 'ended')),
+  max_players INTEGER DEFAULT 4,
+  settings JSONB DEFAULT '{
+    "votingEnabled": true,
+    "turnBased": false,
+    "allowSpectators": true
+  }',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Session participants
+CREATE TABLE IF NOT EXISTS loom_session_players (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id UUID REFERENCES loom_sessions(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  display_name TEXT NOT NULL,
+  role TEXT DEFAULT 'player' CHECK (role IN ('host', 'player', 'spectator')),
+  character_id UUID REFERENCES loom_characters(id) ON DELETE SET NULL,
+  is_active BOOLEAN DEFAULT TRUE,
+  joined_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(session_id, user_id)
+);
+
+-- Session messages (chat + story actions)
+CREATE TABLE IF NOT EXISTS loom_session_messages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id UUID REFERENCES loom_sessions(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  type TEXT DEFAULT 'chat' CHECK (type IN ('chat', 'action', 'choice', 'narration', 'system')),
+  content TEXT NOT NULL,
+  metadata JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Enable RLS
+ALTER TABLE loom_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE loom_session_players ENABLE ROW LEVEL SECURITY;
+ALTER TABLE loom_session_messages ENABLE ROW LEVEL SECURITY;
+
+-- Sessions: anyone can view public sessions, only host can update
+CREATE POLICY "Anyone can view sessions" ON loom_sessions
+  FOR SELECT USING (true);
+CREATE POLICY "Users can create sessions" ON loom_sessions
+  FOR INSERT WITH CHECK (auth.uid() = host_id);
+CREATE POLICY "Host can update session" ON loom_sessions
+  FOR UPDATE USING (auth.uid() = host_id);
+CREATE POLICY "Host can delete session" ON loom_sessions
+  FOR DELETE USING (auth.uid() = host_id);
+
+-- Players: can see all players in sessions they're in
+CREATE POLICY "Players can view session members" ON loom_session_players
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM loom_session_players sp
+      WHERE sp.session_id = loom_session_players.session_id
+      AND sp.user_id = auth.uid()
+    )
+  );
+CREATE POLICY "Users can join sessions" ON loom_session_players
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own player status" ON loom_session_players
+  FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Users can leave sessions" ON loom_session_players
+  FOR DELETE USING (auth.uid() = user_id);
+
+-- Messages: can see messages in sessions you're in
+CREATE POLICY "Players can view session messages" ON loom_session_messages
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM loom_session_players sp
+      WHERE sp.session_id = loom_session_messages.session_id
+      AND sp.user_id = auth.uid()
+    )
+  );
+CREATE POLICY "Players can send messages" ON loom_session_messages
+  FOR INSERT WITH CHECK (
+    auth.uid() = user_id AND
+    EXISTS (
+      SELECT 1 FROM loom_session_players sp
+      WHERE sp.session_id = loom_session_messages.session_id
+      AND sp.user_id = auth.uid()
+    )
+  );
+
+-- Indexes for sessions
+CREATE INDEX IF NOT EXISTS idx_loom_sessions_code ON loom_sessions(code);
+CREATE INDEX IF NOT EXISTS idx_loom_sessions_host ON loom_sessions(host_id);
+CREATE INDEX IF NOT EXISTS idx_loom_sessions_status ON loom_sessions(status);
+CREATE INDEX IF NOT EXISTS idx_loom_session_players_session ON loom_session_players(session_id);
+CREATE INDEX IF NOT EXISTS idx_loom_session_players_user ON loom_session_players(user_id);
+CREATE INDEX IF NOT EXISTS idx_loom_session_messages_session ON loom_session_messages(session_id);
+
+-- Triggers for sessions
+DROP TRIGGER IF EXISTS update_loom_sessions_updated_at ON loom_sessions;
+CREATE TRIGGER update_loom_sessions_updated_at
+  BEFORE UPDATE ON loom_sessions
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Generate unique session code
+CREATE OR REPLACE FUNCTION generate_session_code()
+RETURNS TEXT AS $$
+DECLARE
+  chars TEXT := 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  result TEXT := '';
+  i INTEGER;
+BEGIN
+  FOR i IN 1..6 LOOP
+    result := result || substr(chars, floor(random() * length(chars) + 1)::integer, 1);
+  END LOOP;
+  RETURN result;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ============================================
 -- DONE! Tables are ready for Loomiverse
 -- ============================================

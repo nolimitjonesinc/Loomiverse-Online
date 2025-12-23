@@ -2317,6 +2317,19 @@ export default function Loomiverse() {
   const [authPassword, setAuthPassword] = useState('');
   const [authDisplayName, setAuthDisplayName] = useState('');
 
+  // Interactive Reading Mode - type your own responses
+  const [interactiveMode, setInteractiveMode] = useState(false);
+  const [interactiveInput, setInteractiveInput] = useState('');
+  const [interactiveLoading, setInteractiveLoading] = useState(false);
+
+  // Friends Mode - multiplayer story sessions
+  const [sessionCode, setSessionCode] = useState('');
+  const [sessionJoinCode, setSessionJoinCode] = useState('');
+  const [currentSession, setCurrentSession] = useState(null);
+  const [sessionPlayers, setSessionPlayers] = useState([]);
+  const [sessionMessages, setSessionMessages] = useState([]);
+  const [sessionChatInput, setSessionChatInput] = useState('');
+
   // Library Search & Sort
   const [librarySearch, setLibrarySearch] = useState('');
   const [librarySort, setLibrarySort] = useState('lastPlayed'); // lastPlayed, title, progress, genre
@@ -2405,6 +2418,39 @@ export default function Loomiverse() {
       setAuthEmail('');
       setAuthPassword('');
       console.log('[Auth] Sign in successful');
+
+      // Pull stories from cloud to local (for new device or after clearing data)
+      try {
+        await cloudStorage.syncAllToLocal();
+        // Refresh the stories list
+        setSavedStories(storage.listStories());
+        console.log('[Auth] Cloud sync to local complete');
+      } catch (e) {
+        console.log('[Auth] Cloud sync skipped:', e.message);
+      }
+    }
+    setAuthLoading(false);
+  };
+
+  const handlePasswordReset = async (e) => {
+    e.preventDefault();
+    if (!authEmail) {
+      setAuthError('Please enter your email address');
+      return;
+    }
+    setAuthLoading(true);
+    setAuthError('');
+
+    const { error } = await supabase.auth.resetPasswordForEmail(authEmail, {
+      redirectTo: window.location.origin
+    });
+
+    if (error) {
+      setAuthError(error.message);
+    } else {
+      setAuthError('');
+      alert('Check your email for password reset link!');
+      setAuthMode('signin');
     }
     setAuthLoading(false);
   };
@@ -2910,27 +2956,34 @@ Guidelines:
     const charPsych = chatCharacter.psychology || chatCharacter;
     const charName = chatCharacter.name || 'Unknown';
 
-    const systemPrompt = `You ARE ${charName}, a character from a story. Stay completely in character.
+    const systemPrompt = `You ARE ${charName}. Stay completely in character for this casual conversation.
 
-CHARACTER PROFILE:
-Name: ${charName}
-Role: ${chatCharacter.role || 'character'}
-${charPsych.personality?.core_traits ? `Core Traits: ${charPsych.personality.core_traits.join(', ')}` : ''}
-${charPsych.psychology?.fears ? `Fears: ${charPsych.psychology.fears.join(', ')}` : ''}
-${charPsych.psychology?.desires ? `Desires: ${charPsych.psychology.desires.join(', ')}` : ''}
-${charPsych.speech_patterns ? `Speech Style: ${charPsych.speech_patterns.verbal_tics || 'natural'}` : ''}
-${charPsych.backstory ? `Background: ${charPsych.backstory}` : ''}
+CHARACTER:
+${charName} - ${chatCharacter.role || 'character'}
+${charPsych.personality?.core_traits ? `Traits: ${charPsych.personality.core_traits.slice(0, 3).join(', ')}` : ''}
+${charPsych.speech_patterns ? `Voice: ${charPsych.speech_patterns.verbal_tics || 'natural'}` : ''}
+${charPsych.backstory ? `Background: ${charPsych.backstory.substring(0, 200)}...` : ''}
 
-CONVERSATION HISTORY:
-${chatMessages.slice(-10).map(m => `${m.role === 'user' ? 'Reader' : charName}: ${m.content}`).join('\n')}
+RECENT CHAT:
+${chatMessages.slice(-6).map(m => `${m.role === 'user' ? 'Reader' : charName}: ${m.content}`).join('\n')}
 
-GUIDELINES:
-- Respond as ${charName} would - use their voice, mannerisms, perspective
-- Reference your character's experiences, fears, desires naturally
-- Be authentic to your personality (if guarded, be guarded; if warm, be warm)
-- Keep responses conversational, 1-3 paragraphs max
-- You can share secrets, hidden feelings, "deleted scenes" from your life
-- Remember: you're having a real conversation with a reader who knows your story`;
+CRITICAL RULES FOR NATURAL CONVERSATION:
+1. REPLY LIKE A REAL PERSON - 1-2 sentences is normal. Sometimes just a few words.
+2. DON'T monologue. Real people don't give speeches in casual chat.
+3. Match the energy - short question = short answer. Deep question = maybe a bit more.
+4. Use your character's voice naturally. A gruff warrior says less. A chatty sidekick says more.
+5. It's okay to:
+   - Ask questions back
+   - React with emotion (*laughs*, *sighs*)
+   - Give one-word responses if that fits
+   - Trail off or change subject
+6. NEVER feel obligated to:
+   - Explain yourself fully
+   - Give multiple points
+   - Be profound in every response
+   - Fill silence
+
+This is casual chat, not an interview. Be real.`;
 
     for (const providerKey of providers) {
       const provider = AI_PROVIDERS[providerKey];
@@ -3282,6 +3335,74 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
     if (chapterData) {
       autoSaveStory(bible, chapterData);
     }
+  };
+
+  // Interactive response - user types their own action/response
+  const handleInteractiveResponse = async () => {
+    if (!interactiveInput.trim() || !storyBible || interactiveLoading) return;
+
+    const userResponse = interactiveInput.trim();
+    setInteractiveInput('');
+    setInteractiveLoading(true);
+
+    // Record this as a custom choice
+    const bible = storyBible.clone();
+    bible.recordChoice(bible.currentChapter, 'custom', userResponse);
+    setStoryBible(bible);
+
+    // Generate a brief story response to the user's action
+    const providers = primaryProvider === 'openai'
+      ? ['openai', 'anthropic']
+      : ['anthropic', 'openai'];
+
+    const prompt = `You are the narrator of a ${storyBible.genre} story. The reader just typed their own response to the story.
+
+STORY: "${storyBible.title}"
+CURRENT SCENE: ${chapterData.title}
+${chapterData.content.slice(-500)}
+
+THE READER'S ACTION: "${userResponse}"
+
+Write a brief 2-3 sentence narrative response to what the reader did/said. Keep it natural and seamlessly continue the story. Don't break the fourth wall. React to their action as if it's really happening in the story.`;
+
+    for (const providerKey of providers) {
+      const provider = AI_PROVIDERS[providerKey];
+      try {
+        const response = await fetch(provider.endpoint, {
+          method: 'POST',
+          headers: provider.formatHeaders(),
+          body: JSON.stringify(provider.formatRequest(
+            'You are a story narrator. Keep responses brief and immersive.',
+            prompt
+          ))
+        });
+
+        if (!response.ok) continue;
+        const data = await response.json();
+        const text = provider.extractResponse(data);
+
+        if (text) {
+          // Append the response to the chapter content
+          setChapterData(prev => ({
+            ...prev,
+            content: prev.content + '\n\n' + text
+          }));
+          setInteractiveLoading(false);
+          autoSaveStory(bible);
+          return;
+        }
+      } catch (e) {
+        console.error(`${providerKey} interactive failed:`, e);
+        continue;
+      }
+    }
+
+    // Fallback if API fails
+    setChapterData(prev => ({
+      ...prev,
+      content: prev.content + '\n\n*The story continues...*'
+    }));
+    setInteractiveLoading(false);
   };
 
   // Next chapter
@@ -3701,14 +3822,19 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
 
               {/* Auth Button */}
               {authUser ? (
-                <button
-                  onClick={handleSignOut}
-                  className="opacity-60 hover:opacity-100 transition-opacity flex items-center gap-2 text-sm"
-                  title={`Signed in as ${authUser.email}`}
-                >
-                  <LogOut className="w-4 h-4" />
-                  <span className="hidden sm:inline">Sign Out</span>
-                </button>
+                <div className="flex items-center gap-3">
+                  <span className="hidden md:inline text-xs text-gray-500 truncate max-w-[150px]">
+                    {authUser.email}
+                  </span>
+                  <button
+                    onClick={handleSignOut}
+                    className="opacity-60 hover:opacity-100 transition-opacity flex items-center gap-2 text-sm"
+                    title={`Signed in as ${authUser.email}`}
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span className="hidden sm:inline">Sign Out</span>
+                  </button>
+                </div>
               ) : (
                 <button
                   onClick={() => setShowAuthModal(true)}
@@ -3795,7 +3921,7 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
             )}
 
             {/* Action Cards Grid */}
-            <div className="grid md:grid-cols-3 gap-6 mb-12">
+            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
               {/* New Story Card */}
               <button
                 onClick={() => setScreen('genre')}
@@ -3815,10 +3941,31 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                 <p className="text-sm opacity-50">Choose from 26 genres with unique story formulas</p>
               </button>
 
+              {/* Quick Chat Card */}
+              <button
+                onClick={() => setScreen('quickChat')}
+                className="action-card-glow p-8 rounded-2xl border group text-left animate-cascade stagger-2"
+                style={{
+                  borderColor: '#8b5cf6' + '40',
+                  background: `linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, transparent 100%)`
+                }}
+              >
+                <div
+                  className="w-14 h-14 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"
+                  style={{ backgroundColor: '#8b5cf640' }}
+                >
+                  <MessageCircle className="w-7 h-7" style={{ color: '#8b5cf6' }} />
+                </div>
+                <h3 className="text-xl font-bold mb-2">Quick Chat</h3>
+                <p className="text-sm opacity-50">
+                  Talk to any character from your stories
+                </p>
+              </button>
+
               {/* Characters Card */}
               <button
                 onClick={() => setScreen('characters')}
-                className="action-card-glow p-8 rounded-2xl border group text-left animate-cascade stagger-2"
+                className="action-card-glow p-8 rounded-2xl border group text-left animate-cascade stagger-3"
                 style={{
                   borderColor: currentTheme.accent + '40',
                   background: `linear-gradient(135deg, ${currentTheme.bgSecondary} 0%, transparent 100%)`
@@ -3839,7 +3986,7 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
               {/* Library Card */}
               <button
                 onClick={() => setScreen('stories')}
-                className="action-card-glow p-8 rounded-2xl border group text-left animate-cascade stagger-3"
+                className="action-card-glow p-8 rounded-2xl border group text-left animate-cascade stagger-4"
                 style={{
                   borderColor: currentTheme.accent + '40',
                   background: `linear-gradient(135deg, ${currentTheme.bgSecondary} 0%, transparent 100%)`
@@ -3855,6 +4002,37 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                 <p className="text-sm opacity-50">
                   {savedStories.length} stor{savedStories.length !== 1 ? 'ies' : 'y'} • {collections.length} collections
                 </p>
+              </button>
+            </div>
+
+            {/* Friends Mode Banner */}
+            <div className="mb-12">
+              <button
+                onClick={() => setScreen('friendsMode')}
+                className="w-full p-6 rounded-2xl border group text-left transition-all"
+                style={{
+                  borderColor: '#10b981' + '40',
+                  background: `linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, transparent 50%, rgba(16, 185, 129, 0.05) 100%)`
+                }}
+              >
+                <div className="flex items-center gap-6">
+                  <div
+                    className="w-16 h-16 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform"
+                    style={{ backgroundColor: '#10b98140' }}
+                  >
+                    <Users className="w-8 h-8" style={{ color: '#10b981' }} />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-xl font-bold mb-1 flex items-center gap-2">
+                      Friends Mode
+                      <span className="px-2 py-0.5 text-xs bg-emerald-500/20 text-emerald-400 rounded-full">NEW</span>
+                    </h3>
+                    <p className="text-sm opacity-50">
+                      Create or join a story session with friends. Read together, vote on choices, and chat in real-time!
+                    </p>
+                  </div>
+                  <ChevronRight className="w-6 h-6 text-emerald-500 opacity-50 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
+                </div>
               </button>
             </div>
 
@@ -4102,14 +4280,20 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                       )}
 
                       {/* Actions */}
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); startCharacterChat(char); }}
+                          className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded flex items-center gap-2 text-sm"
+                        >
+                          <MessageCircle className="w-4 h-4" /> Chat
+                        </button>
                         {!char.simulated && (
                           <button
                             onClick={(e) => { e.stopPropagation(); simulateChildhood(char); }}
                             disabled={simulatingChildhood}
                             className="px-4 py-2 border border-blue-500 text-blue-400 hover:bg-blue-500 hover:text-gray-950 rounded flex items-center gap-2 text-sm"
                           >
-                            <Brain className="w-4 h-4" /> 
+                            <Brain className="w-4 h-4" />
                             {simulatingChildhood ? `Simulating... ${Math.round(simulationProgress)}%` : 'Simulate Childhood'}
                           </button>
                         )}
@@ -5095,22 +5279,80 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
             {/* Choices */}
             {!choiceMade && chapterData.choices && (
               <div className="mt-12 pt-8 border-t border-gray-800">
-                <p className="text-center text-amber-500 font-bold mb-6">What happens next?</p>
-                <div className="space-y-3">
-                  {chapterData.choices.map((choice, i) => (
-                    <button
-                      key={choice.id}
-                      onClick={() => makeChoice(choice.id, choice.text)}
-                      className="w-full text-left p-4 border border-gray-800 hover:border-rose-600/50 hover:bg-rose-600/5 transition-all"
-                    >
-                      <span className="text-amber-500 font-bold mr-3">{String.fromCharCode(65 + i)}</span>
-                      {choice.text}
-                      {choice.hint && (
-                        <span className="block text-sm text-gray-500 mt-1 ml-6 italic">{choice.hint}</span>
-                      )}
-                    </button>
-                  ))}
+                {/* Mode Toggle */}
+                <div className="flex justify-center gap-4 mb-6">
+                  <button
+                    onClick={() => setInteractiveMode(false)}
+                    className={`px-4 py-2 rounded-lg text-sm transition-all ${
+                      !interactiveMode
+                        ? 'bg-amber-500 text-gray-950 font-bold'
+                        : 'text-gray-500 hover:text-white'
+                    }`}
+                  >
+                    Choose Path
+                  </button>
+                  <button
+                    onClick={() => setInteractiveMode(true)}
+                    className={`px-4 py-2 rounded-lg text-sm transition-all flex items-center gap-2 ${
+                      interactiveMode
+                        ? 'bg-purple-500 text-white font-bold'
+                        : 'text-gray-500 hover:text-white'
+                    }`}
+                  >
+                    <Pencil className="w-3 h-3" /> Write Your Own
+                  </button>
                 </div>
+
+                {!interactiveMode ? (
+                  <>
+                    <p className="text-center text-amber-500 font-bold mb-6">What happens next?</p>
+                    <div className="space-y-3">
+                      {chapterData.choices.map((choice, i) => (
+                        <button
+                          key={choice.id}
+                          onClick={() => makeChoice(choice.id, choice.text)}
+                          className="w-full text-left p-4 border border-gray-800 hover:border-rose-600/50 hover:bg-rose-600/5 transition-all"
+                        >
+                          <span className="text-amber-500 font-bold mr-3">{String.fromCharCode(65 + i)}</span>
+                          {choice.text}
+                          {choice.hint && (
+                            <span className="block text-sm text-gray-500 mt-1 ml-6 italic">{choice.hint}</span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div className="max-w-lg mx-auto">
+                    <p className="text-center text-purple-400 font-bold mb-4">What do you do?</p>
+                    <p className="text-center text-gray-500 text-sm mb-6">Type your action, dialogue, or response to the story</p>
+                    <div className="flex gap-3">
+                      <input
+                        type="text"
+                        value={interactiveInput}
+                        onChange={(e) => setInteractiveInput(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleInteractiveResponse()}
+                        placeholder="I walk towards the ancient door..."
+                        disabled={interactiveLoading}
+                        className="flex-1 px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-600 focus:border-purple-500 focus:outline-none transition-colors disabled:opacity-50"
+                      />
+                      <button
+                        onClick={handleInteractiveResponse}
+                        disabled={interactiveLoading || !interactiveInput.trim()}
+                        className="px-6 py-3 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-colors flex items-center gap-2"
+                      >
+                        {interactiveLoading ? (
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <Send className="w-4 h-4" />
+                        )}
+                      </button>
+                    </div>
+                    <p className="text-center text-gray-600 text-xs mt-4">
+                      The story will respond to your action
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
@@ -5469,6 +5711,183 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
               </div>
             </aside>
           )}
+        </div>
+      )}
+
+      {/* QUICK CHAT SCREEN - Simplified character picker for chat */}
+      {screen === 'quickChat' && (
+        <div className="relative z-10 min-h-screen p-8">
+          <button onClick={() => setScreen('landing')} className="mb-6 text-gray-500 hover:text-gray-300 flex items-center gap-2">
+            ← Back to Home
+          </button>
+
+          <div className="max-w-2xl mx-auto">
+            <div className="text-center mb-8">
+              <MessageCircle className="w-12 h-12 text-purple-500 mx-auto mb-4" />
+              <h2 className="text-3xl font-bold mb-2">Quick Chat</h2>
+              <p className="text-gray-500">Choose a character to start chatting</p>
+            </div>
+
+            {characters.length === 0 ? (
+              <div className="text-center py-12">
+                <User className="w-16 h-16 text-gray-700 mx-auto mb-4" />
+                <p className="text-gray-500 mb-6">No characters yet! Create one or start a story.</p>
+                <div className="flex gap-4 justify-center">
+                  <button
+                    onClick={generateNewCharacter}
+                    className="px-6 py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-lg flex items-center gap-2"
+                  >
+                    <Sparkles className="w-4 h-4" /> Generate Character
+                  </button>
+                  <button
+                    onClick={() => setScreen('genre')}
+                    className="px-6 py-3 border border-amber-500 text-amber-500 hover:bg-amber-500 hover:text-gray-950 rounded-lg flex items-center gap-2"
+                  >
+                    <Play className="w-4 h-4" /> Start a Story
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {characters.map(char => (
+                  <button
+                    key={char.id}
+                    onClick={() => startCharacterChat(char)}
+                    className="w-full p-4 bg-gray-900/50 border border-gray-800 hover:border-purple-500/50 rounded-xl flex items-center gap-4 text-left transition-all group"
+                  >
+                    <div className="w-12 h-12 rounded-full bg-purple-500/20 flex items-center justify-center group-hover:bg-purple-500/30 transition-colors">
+                      <User className="w-6 h-6 text-purple-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-bold text-white truncate">{char.name || 'Unknown'}</h3>
+                      <p className="text-sm text-gray-500 truncate">
+                        {char.role || 'Character'}
+                        {char.originStoryTitle && <span className="text-purple-400"> • {char.originStoryTitle}</span>}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 text-purple-400 group-hover:text-purple-300">
+                      <span className="text-sm">Chat</span>
+                      <ChevronRight className="w-4 h-4" />
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* FRIENDS MODE SCREEN */}
+      {screen === 'friendsMode' && (
+        <div className="relative z-10 min-h-screen p-8">
+          <button onClick={() => setScreen('landing')} className="mb-6 text-gray-500 hover:text-gray-300 flex items-center gap-2">
+            ← Back to Home
+          </button>
+
+          <div className="max-w-2xl mx-auto">
+            <div className="text-center mb-8">
+              <Users className="w-12 h-12 text-emerald-500 mx-auto mb-4" />
+              <h2 className="text-3xl font-bold mb-2">Friends Mode</h2>
+              <p className="text-gray-500">Experience stories together with friends</p>
+            </div>
+
+            {!authUser ? (
+              <div className="text-center py-12 bg-gray-900/50 rounded-xl border border-gray-800">
+                <LogIn className="w-16 h-16 text-gray-700 mx-auto mb-4" />
+                <p className="text-gray-500 mb-6">Sign in to create or join story sessions</p>
+                <button
+                  onClick={() => setShowAuthModal(true)}
+                  className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold"
+                >
+                  Sign In
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {/* Create Session */}
+                <div className="p-6 bg-gray-900/50 rounded-xl border border-gray-800">
+                  <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                    <Play className="w-5 h-5 text-emerald-500" />
+                    Create New Session
+                  </h3>
+                  <p className="text-gray-500 text-sm mb-4">
+                    Start a new story session and invite friends to join
+                  </p>
+                  <button
+                    onClick={() => {
+                      // Generate a random code
+                      const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+                      setSessionCode(code);
+                      alert(`Your session code is: ${code}\n\nShare this with friends to invite them!`);
+                    }}
+                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold flex items-center justify-center gap-2"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    Create Story Session
+                  </button>
+                </div>
+
+                {/* Join Session */}
+                <div className="p-6 bg-gray-900/50 rounded-xl border border-gray-800">
+                  <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                    <Users className="w-5 h-5 text-purple-500" />
+                    Join Existing Session
+                  </h3>
+                  <p className="text-gray-500 text-sm mb-4">
+                    Enter a session code to join your friends
+                  </p>
+                  <div className="flex gap-3">
+                    <input
+                      type="text"
+                      value={sessionJoinCode}
+                      onChange={(e) => setSessionJoinCode(e.target.value.toUpperCase())}
+                      placeholder="Enter code (e.g., ABC123)"
+                      maxLength={6}
+                      className="flex-1 px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-600 focus:border-purple-500 focus:outline-none uppercase tracking-widest text-center text-xl font-mono"
+                    />
+                    <button
+                      onClick={() => {
+                        if (sessionJoinCode.length === 6) {
+                          alert(`Joining session: ${sessionJoinCode}\n\n(Multiplayer coming soon - database tables ready!)`);
+                        }
+                      }}
+                      disabled={sessionJoinCode.length < 6}
+                      className="px-6 py-3 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded-lg font-bold"
+                    >
+                      Join
+                    </button>
+                  </div>
+                </div>
+
+                {/* How It Works */}
+                <div className="p-6 bg-gray-900/30 rounded-xl border border-gray-800/50">
+                  <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wide mb-4">How Friends Mode Works</h3>
+                  <div className="space-y-3 text-sm text-gray-500">
+                    <div className="flex items-start gap-3">
+                      <span className="w-6 h-6 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center text-xs font-bold shrink-0">1</span>
+                      <span>Create a session and share your code with friends</span>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <span className="w-6 h-6 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center text-xs font-bold shrink-0">2</span>
+                      <span>Everyone reads the story together in real-time</span>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <span className="w-6 h-6 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center text-xs font-bold shrink-0">3</span>
+                      <span>Vote on story choices or take turns making decisions</span>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <span className="w-6 h-6 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center text-xs font-bold shrink-0">4</span>
+                      <span>Chat and react as the story unfolds</span>
+                    </div>
+                  </div>
+                </div>
+
+                <p className="text-center text-gray-600 text-xs mt-4">
+                  Database tables ready. Full multiplayer coming soon!
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -5848,6 +6267,19 @@ Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was re
                 </>
               )}
             </div>
+
+            {/* Forgot password - only show on signin */}
+            {authMode === 'signin' && (
+              <div className="mt-3 text-center">
+                <button
+                  onClick={handlePasswordReset}
+                  disabled={authLoading}
+                  className="text-xs text-gray-600 hover:text-gray-400 transition-colors"
+                >
+                  Forgot your password?
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
