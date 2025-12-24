@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Save, Library, Globe, Upload, BookOpen, X, Settings, User, Sparkles, Play, ChevronRight, Heart, Brain, Home, Users, Zap, Pencil, Archive, Bookmark, FolderPlus, MoreVertical, Trash2, MessageCircle, Send, Cloud, CloudOff, LogIn, LogOut, Download, Check, Square, CheckSquare } from 'lucide-react';
+import { Save, Library, Globe, Upload, BookOpen, X, Settings, User, Sparkles, Play, Pause, Volume2, VolumeX, ChevronRight, Heart, Brain, Home, Users, Zap, Pencil, Archive, Bookmark, FolderPlus, MoreVertical, Trash2, MessageCircle, Send, Cloud, CloudOff, LogIn, LogOut, Download, Check, Square, CheckSquare } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 
 // Import author styles from iOS app (25+ writing styles)
 import { buildAuthorStylePrompt, getRandomAuthorForGenre } from './data/authorStyles.js';
 
 // Import AI Author personalities for Writers Room
-import { AI_AUTHORS, getAuthorById, getBestAuthorForGenre, buildAuthorPrompt } from './data/aiAuthors.js';
+import { AI_AUTHORS, getAuthorById, getBestAuthorForGenre, buildAuthorPrompt, buildBlendedAuthorPrompt } from './data/aiAuthors.js';
 
 // Import Supabase for cloud storage
 import { supabase } from './lib/supabase.js';
@@ -1314,6 +1314,53 @@ class StorageManager {
     localStorage.setItem(this.prefix + 'characters', JSON.stringify(chars));
   }
 
+  // Character Conversations - Persist chat history across sessions
+  saveCharacterConversation(characterId, messages) {
+    const key = this.prefix + 'chat_' + characterId;
+    const data = {
+      messages,
+      lastUpdated: new Date().toISOString(),
+      messageCount: messages.length
+    };
+    localStorage.setItem(key, JSON.stringify(data));
+
+    // Cloud sync for cross-device access (if method exists)
+    if (typeof cloudStorage?.saveCharacterChat === 'function') {
+      cloudStorage.saveCharacterChat(characterId, messages).catch(e => {
+        console.log('[Storage] Character chat cloud sync queued');
+      });
+    }
+  }
+
+  loadCharacterConversation(characterId) {
+    const key = this.prefix + 'chat_' + characterId;
+    const data = localStorage.getItem(key);
+    return data ? JSON.parse(data) : null;
+  }
+
+  clearCharacterConversation(characterId) {
+    const key = this.prefix + 'chat_' + characterId;
+    localStorage.removeItem(key);
+  }
+
+  listCharacterConversations() {
+    const conversations = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key?.startsWith(this.prefix + 'chat_')) {
+        try {
+          const data = JSON.parse(localStorage.getItem(key));
+          conversations.push({
+            characterId: key.replace(this.prefix + 'chat_', ''),
+            lastUpdated: data.lastUpdated,
+            messageCount: data.messageCount || data.messages?.length || 0
+          });
+        } catch (e) { /* skip invalid */ }
+      }
+    }
+    return conversations.sort((a, b) => new Date(b.lastUpdated) - new Date(a.lastUpdated));
+  }
+
   // Settings
   saveSetting(key, value) {
     localStorage.setItem(this.prefix + 'setting_' + key, JSON.stringify(value));
@@ -2292,6 +2339,10 @@ export default function Loomiverse() {
   const [loadingText, setLoadingText] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [showBible, setShowBible] = useState(false);
+
+  // Writers Room - AI Author Selection
+  const [selectedAIAuthors, setSelectedAIAuthors] = useState([]); // Array of up to 3 authors for blending
+  const [showWritersRoom, setShowWritersRoom] = useState(false);
   const [expandedCharacter, setExpandedCharacter] = useState(null);
   const [characterFilter, setCharacterFilter] = useState('all'); // 'all', 'user', 'story'
 
@@ -2336,6 +2387,11 @@ export default function Loomiverse() {
   const [autoNarrate, setAutoNarrate] = useState(false);
   const [narrationSpeed, setNarrationSpeed] = useState(1.0);
   const [audioEnabled, setAudioEnabled] = useState(false);
+
+  // Voice Narration Playback State
+  const [isNarrating, setIsNarrating] = useState(false);
+  const [narrationAudio, setNarrationAudio] = useState(null); // For ElevenLabs audio element
+  const speechSynthRef = useRef(null); // For Web Speech API utterance
 
   // Confirmation Modal
   const [confirmModal, setConfirmModal] = useState(null); // { title, message, onConfirm, confirmText, confirmStyle }
@@ -2684,18 +2740,21 @@ export default function Loomiverse() {
 
   // Select genre and story
   // Generate unique story premise via AI - NOW USES AUTHOR STYLES AND AI AUTHORS!
-  const generatePremise = async (genre, aiAuthor = null) => {
+  const generatePremise = async (genre, aiAuthors = []) => {
     const genreData = genres[genre];
     const providers = primaryProvider === 'openai'
       ? ['openai', 'anthropic']
       : ['anthropic', 'openai'];
 
-    // USE AI AUTHOR IF SELECTED (from Writers Room), otherwise fall back to iOS author styles
-    const aiAuthorPrompt = aiAuthor ? buildAuthorPrompt(aiAuthor) : '';
+    // USE AI AUTHORS IF SELECTED (from Writers Room), otherwise fall back to iOS author styles
+    const hasAIAuthors = aiAuthors && aiAuthors.length > 0;
+    const aiAuthorPrompt = hasAIAuthors
+      ? (aiAuthors.length === 1 ? buildAuthorPrompt(aiAuthors[0]) : buildBlendedAuthorPrompt(aiAuthors))
+      : '';
 
     // SELECT AUTHOR STYLE FIRST - This is the key fix!
-    const author = aiAuthor ? null : getRandomAuthorForGenre(genreData.name);
-    const authorGuidance = aiAuthor
+    const author = hasAIAuthors ? null : getRandomAuthorForGenre(genreData.name);
+    const authorGuidance = hasAIAuthors
       ? `\n\n${aiAuthorPrompt}`
       : (author?.description
         ? `\n\nYou are channeling the creative spirit of ${author.name}. ${author.description}\n\nLet this author's sensibilities influence the TYPE of story you create - their themes, their concerns, their unique perspective on the genre.`
@@ -3053,8 +3112,11 @@ This is casual chat, not an interview. Be real.`;
         const text = provider.extractResponse(data);
 
         if (text) {
-          setChatMessages(prev => [...prev, { role: 'character', content: text }]);
+          const newMessages = [...chatMessages, userMessage, { role: 'character', content: text }];
+          setChatMessages(newMessages);
           setChatLoading(false);
+          // Auto-save conversation after each exchange
+          storage.saveCharacterConversation(chatCharacter.id, newMessages);
           return;
         }
       } catch (e) {
@@ -3064,20 +3126,35 @@ This is casual chat, not an interview. Be real.`;
     }
 
     // Fallback response if API fails
-    setChatMessages(prev => [...prev, {
+    const fallbackMessages = [...chatMessages, userMessage, {
       role: 'character',
       content: `*${charName} pauses thoughtfully* I'm not quite sure how to respond to that right now...`
-    }]);
+    }];
+    setChatMessages(fallbackMessages);
     setChatLoading(false);
+    // Auto-save even fallback responses
+    storage.saveCharacterConversation(chatCharacter.id, fallbackMessages);
   };
 
-  // Start chat with a character
+  // Start chat with a character - loads existing conversation if available
   const startCharacterChat = (character) => {
     setChatCharacter(character);
-    setChatMessages([{
-      role: 'character',
-      content: `*${character.name || 'The character'} looks up as you approach* Oh, hello there. I didn't expect to see you here. What's on your mind?`
-    }]);
+
+    // Try to load existing conversation from storage
+    const existingConvo = storage.loadCharacterConversation(character.id);
+
+    if (existingConvo && existingConvo.messages && existingConvo.messages.length > 0) {
+      // Resume previous conversation
+      setChatMessages(existingConvo.messages);
+      console.log(`[Chat] Resumed conversation with ${character.name} (${existingConvo.messages.length} messages)`);
+    } else {
+      // Start new conversation
+      setChatMessages([{
+        role: 'character',
+        content: `*${character.name || 'The character'} looks up as you approach* Oh, hello there. I didn't expect to see you here. What's on your mind?`
+      }]);
+    }
+
     setScreen('characterChat');
   };
 
@@ -3091,21 +3168,34 @@ This is casual chat, not an interview. Be real.`;
   const selectGenre = async (genre) => {
     setSelectedGenre(genre);
     setLoading(true);
-    setLoadingText('Generating your unique story...');
+
+    // Show which AI author(s) are writing if selected
+    if (selectedAIAuthors.length > 0) {
+      const authorNames = selectedAIAuthors.map(a => a.name).join(' & ');
+      setLoadingText(`${authorNames} ${selectedAIAuthors.length === 1 ? 'is' : 'are'} crafting your story...`);
+    } else {
+      setLoadingText('Generating your unique story...');
+    }
 
     // Track genre usage
     storage.trackGenreUsage(genre);
 
     const genreData = genres[genre];
 
-    // Generate unique AI premise using original author styles
-    const premise = await generatePremise(genre);
+    // Generate unique AI premise - pass selected AI authors from Writers Room
+    const premise = await generatePremise(genre, selectedAIAuthors);
     setCurrentStory(premise);
 
     const bible = new StoryBible(premise.title, genreData.name, premise.logline);
 
-    // Use the author style from premise (original iOS author styles)
-    if (premise.author) {
+    // Store AI authors from Writers Room if selected
+    if (selectedAIAuthors.length > 0) {
+      bible.aiAuthors = selectedAIAuthors;
+      const authorNames = selectedAIAuthors.map(a => a.name).join(' × ');
+      bible.setAuthorStyle({ name: authorNames, description: 'AI Authors from Writers Room' });
+      console.log(`Using AI Authors from Writers Room: ${authorNames}`);
+    } else if (premise.author) {
+      // Use the author style from premise (original iOS author styles)
       bible.setAuthorStyle(premise.author);
       console.log(`Using author style from premise: ${premise.author.name}`);
     }
@@ -3220,10 +3310,21 @@ This is casual chat, not an interview. Be real.`;
       ? ['openai', 'anthropic']
       : ['anthropic', 'openai'];
 
-    // Get author style name for prompt enhancement
-    const authorName = storyBible?.authorStyle?.name || 'a masterful storyteller';
+    // Get author style - prioritize AI Authors from Writers Room
+    let authorIdentity = '';
+    if (storyBible?.aiAuthors && storyBible.aiAuthors.length > 0) {
+      // Use full AI author voice(s) from Writers Room
+      authorIdentity = storyBible.aiAuthors.length === 1
+        ? buildAuthorPrompt(storyBible.aiAuthors[0])
+        : buildBlendedAuthorPrompt(storyBible.aiAuthors);
+    } else {
+      const authorName = storyBible?.authorStyle?.name || 'a masterful storyteller';
+      authorIdentity = `You are ${authorName}.`;
+    }
 
-    const systemPrompt = `You are ${authorName}, creating an interactive Choose Your Own Adventure story. Write literary quality prose with vivid imagery, strong character voices, and proper pacing. Each chapter should be 600-900 words.
+    const systemPrompt = `${authorIdentity}
+
+You are creating an interactive Choose Your Own Adventure story. Write literary quality prose with vivid imagery, strong character voices, and proper pacing. Each chapter should be 600-900 words.
 
 CRITICAL REQUIREMENTS:
 1. CONTINUITY: Maintain strict continuity with the Story Bible. Use character names EXACTLY as established. NEVER contradict established world facts.
@@ -3613,6 +3714,150 @@ IMPORTANT:
       toast.textContent = 'Story saved';
       document.body.appendChild(toast);
       setTimeout(() => toast.remove(), 2000);
+    }
+  };
+
+  // ============================================
+  // VOICE NARRATION - Text-to-Speech
+  // ============================================
+
+  // Stop any ongoing narration
+  const stopNarration = () => {
+    // Stop Web Speech API
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    // Stop ElevenLabs audio
+    if (narrationAudio) {
+      narrationAudio.pause();
+      narrationAudio.currentTime = 0;
+    }
+    setIsNarrating(false);
+  };
+
+  // Narrate text using Web Speech API (free, built-in)
+  const narrateWithWebSpeech = (text) => {
+    if (!window.speechSynthesis) {
+      console.error('[Narration] Web Speech API not supported');
+      return;
+    }
+
+    // Cancel any ongoing speech
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = narrationSpeed;
+    utterance.pitch = 1;
+
+    // Try to find a good voice
+    const voices = window.speechSynthesis.getVoices();
+    const preferredVoice = voices.find(v =>
+      v.name.toLowerCase().includes('samantha') ||
+      v.name.toLowerCase().includes('karen') ||
+      v.name.toLowerCase().includes('daniel') ||
+      v.lang.startsWith('en')
+    );
+    if (preferredVoice) {
+      utterance.voice = preferredVoice;
+    }
+
+    utterance.onstart = () => setIsNarrating(true);
+    utterance.onend = () => setIsNarrating(false);
+    utterance.onerror = () => setIsNarrating(false);
+
+    speechSynthRef.current = utterance;
+    window.speechSynthesis.speak(utterance);
+  };
+
+  // Narrate text using ElevenLabs API (premium quality)
+  const narrateWithElevenLabs = async (text) => {
+    if (!elevenLabsKey) {
+      console.log('[Narration] No ElevenLabs key, falling back to Web Speech');
+      narrateWithWebSpeech(text);
+      return;
+    }
+
+    setIsNarrating(true);
+
+    // ElevenLabs voice IDs
+    const voiceIds = {
+      adam: '21m00Tcm4TlvDq8ikWAM',
+      antoni: 'ErXwobaYiN019PkySvjV',
+      arnold: 'VR6AewLTigWG4xSOukaG',
+      josh: 'TxGEqnHWrfWFTfGW9XjX',
+      sam: 'yoZ06aMxZJJ28mfd3POQ',
+      rachel: '21m00Tcm4TlvDq8ikWAM',
+      domi: 'AZnzlk1XvdvUeBnXmlld',
+      bella: 'EXAVITQu4vr4xnSDxMaL',
+      elli: 'MF3mGyEYCl7XYWbV9V6O',
+      emily: 'LcfcDJNUP1GQjkzn1xUU',
+      alloy: 'pNInz6obpgDQGcFmaJgB', // Default narrator
+      storyteller: 'pNInz6obpgDQGcFmaJgB'
+    };
+
+    const voiceId = voiceIds[selectedVoice] || voiceIds.alloy;
+
+    try {
+      const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+        method: 'POST',
+        headers: {
+          'xi-api-key': elevenLabsKey,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          text: text.substring(0, 5000), // ElevenLabs has character limits
+          model_id: 'eleven_monolingual_v1',
+          voice_settings: {
+            stability: 0.5,
+            similarity_boost: 0.5
+          }
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('ElevenLabs API failed');
+      }
+
+      const audioBlob = await response.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
+      const audio = new Audio(audioUrl);
+      audio.playbackRate = narrationSpeed;
+
+      audio.onended = () => {
+        setIsNarrating(false);
+        URL.revokeObjectURL(audioUrl);
+      };
+      audio.onerror = () => {
+        setIsNarrating(false);
+        URL.revokeObjectURL(audioUrl);
+      };
+
+      setNarrationAudio(audio);
+      audio.play();
+    } catch (error) {
+      console.error('[Narration] ElevenLabs failed, falling back to Web Speech:', error);
+      setIsNarrating(false);
+      narrateWithWebSpeech(text);
+    }
+  };
+
+  // Main narration function - uses ElevenLabs if key available, otherwise Web Speech
+  const narrateChapter = (text) => {
+    if (isNarrating) {
+      stopNarration();
+      return;
+    }
+
+    // Clean up the text for better narration
+    const cleanText = text
+      .replace(/\*([^*]+)\*/g, '$1') // Remove asterisks (action indicators)
+      .replace(/\n\n+/g, '. ') // Convert paragraph breaks to pauses
+      .trim();
+
+    if (elevenLabsKey) {
+      narrateWithElevenLabs(cleanText);
+    } else {
+      narrateWithWebSpeech(cleanText);
     }
   };
 
@@ -4094,6 +4339,141 @@ IMPORTANT:
                 className="w-full py-2 bg-amber-600 hover:bg-amber-500 text-gray-950 font-bold rounded"
               >
                 Save Settings
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Writers Room Modal */}
+      {showWritersRoom && (
+        <div className="fixed inset-0 z-50 bg-gray-950/95 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-gray-900 border border-purple-800/50 rounded-xl max-w-3xl w-full my-8">
+            {/* Header */}
+            <div className="flex justify-between items-center p-6 border-b border-gray-800">
+              <div>
+                <h2 className="text-2xl font-bold flex items-center gap-3">
+                  <span className="text-2xl">✍️</span>
+                  <span className="bg-gradient-to-r from-purple-400 to-indigo-400 bg-clip-text text-transparent">
+                    Writers Room
+                  </span>
+                </h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Select up to 3 AI authors to craft your story. Blend styles for unique voices!
+                </p>
+              </div>
+              <button
+                onClick={() => setShowWritersRoom(false)}
+                className="text-gray-500 hover:text-gray-300 p-2"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* Selected Authors Bar */}
+            {selectedAIAuthors.length > 0 && (
+              <div className="px-6 py-3 bg-purple-900/20 border-b border-gray-800 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-purple-400">Selected:</span>
+                  <div className="flex gap-2">
+                    {selectedAIAuthors.map(author => (
+                      <span
+                        key={author.id}
+                        className="px-3 py-1 bg-purple-600/30 border border-purple-500/50 rounded-full text-sm flex items-center gap-2"
+                      >
+                        <span>{author.avatar}</span>
+                        <span>{author.name}</span>
+                        <button
+                          onClick={() => setSelectedAIAuthors(prev => prev.filter(a => a.id !== author.id))}
+                          className="text-purple-300 hover:text-white ml-1"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedAIAuthors([])}
+                  className="text-xs text-gray-500 hover:text-gray-300"
+                >
+                  Clear all
+                </button>
+              </div>
+            )}
+
+            {/* Authors Grid */}
+            <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[60vh] overflow-y-auto">
+              {AI_AUTHORS.map(author => {
+                const isSelected = selectedAIAuthors.some(a => a.id === author.id);
+                const canSelect = selectedAIAuthors.length < 3 || isSelected;
+
+                return (
+                  <button
+                    key={author.id}
+                    onClick={() => {
+                      if (isSelected) {
+                        setSelectedAIAuthors(prev => prev.filter(a => a.id !== author.id));
+                      } else if (canSelect) {
+                        setSelectedAIAuthors(prev => [...prev, author]);
+                      }
+                    }}
+                    disabled={!canSelect && !isSelected}
+                    className={`p-5 rounded-xl border text-left transition-all ${
+                      isSelected
+                        ? 'border-purple-500 bg-purple-600/20 ring-2 ring-purple-500/50'
+                        : canSelect
+                          ? 'border-gray-700 bg-gray-800/50 hover:border-purple-500/50 hover:bg-gray-800'
+                          : 'border-gray-800 bg-gray-900/50 opacity-50 cursor-not-allowed'
+                    }`}
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="text-4xl">{author.avatar}</div>
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between">
+                          <h3 className="font-bold text-lg">{author.name}</h3>
+                          {isSelected && (
+                            <span className="text-xs px-2 py-1 bg-purple-500 text-white rounded-full">
+                              Selected
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm text-purple-400 font-medium">{author.tagline}</p>
+                        <p className="text-xs text-amber-500 mt-1">Specialty: {author.specialty}</p>
+                        <p className="text-xs text-gray-500 mt-2 line-clamp-2">{author.bio}</p>
+                        <div className="flex flex-wrap gap-1 mt-3">
+                          {Object.entries(author.style).map(([key, value]) => (
+                            <span
+                              key={key}
+                              className="text-xs px-2 py-0.5 bg-gray-700/50 text-gray-400 rounded"
+                            >
+                              {value}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                    <p className="text-xs text-gray-600 italic mt-3 pl-14">"{author.catchphrase}"</p>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Footer */}
+            <div className="p-6 border-t border-gray-800 flex justify-between items-center bg-gray-900/50">
+              <p className="text-sm text-gray-500">
+                {selectedAIAuthors.length === 0
+                  ? 'No author selected - random style will be used'
+                  : selectedAIAuthors.length === 1
+                    ? `${selectedAIAuthors[0].name} will write your story`
+                    : `${selectedAIAuthors.length} authors will blend their styles`
+                }
+              </p>
+              <button
+                onClick={() => setShowWritersRoom(false)}
+                className="px-6 py-2 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-lg transition-colors"
+              >
+                {selectedAIAuthors.length > 0 ? 'Confirm Selection' : 'Continue Without Author'}
               </button>
             </div>
           </div>
@@ -5437,7 +5817,35 @@ IMPORTANT:
           )}
 
           <h2 className="text-4xl font-bold mb-2 pt-8 animate-text-reveal text-glow">Choose Your World</h2>
-          <p className="text-gray-400 mb-8 text-center animate-cascade stagger-2">26 genres, each with unique story formulas and author styles</p>
+          <p className="text-gray-400 mb-4 text-center animate-cascade stagger-2">26 genres, each with unique story formulas and author styles</p>
+
+          {/* Writers Room Toggle */}
+          <button
+            onClick={() => setShowWritersRoom(true)}
+            className="mb-8 px-5 py-3 bg-gradient-to-r from-purple-900/50 to-indigo-900/50 border border-purple-500/30 hover:border-purple-400/50 rounded-xl text-purple-300 hover:text-purple-200 transition-all group animate-cascade stagger-3"
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-xl">✍️</span>
+              <div className="text-left">
+                <div className="font-bold text-sm">Writers Room</div>
+                <div className="text-xs text-purple-400/70">
+                  {selectedAIAuthors.length === 0
+                    ? 'Choose your AI author(s)'
+                    : selectedAIAuthors.length === 1
+                      ? `Writing with ${selectedAIAuthors[0].name}`
+                      : `Blending ${selectedAIAuthors.length} styles`
+                  }
+                </div>
+              </div>
+              {selectedAIAuthors.length > 0 && (
+                <div className="flex -space-x-1 ml-2">
+                  {selectedAIAuthors.map(author => (
+                    <span key={author.id} className="text-lg">{author.avatar}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </button>
 
           {/* Genre Categories */}
           <div className="w-full max-w-5xl space-y-8">
@@ -5765,6 +6173,22 @@ IMPORTANT:
                 </span>
               </div>
               <div className="flex items-center gap-4">
+                {/* Voice Narration Button */}
+                <button
+                  onClick={() => narrateChapter(chapterData.content)}
+                  className={`p-2 rounded transition-colors ${
+                    isNarrating
+                      ? 'bg-amber-600 text-gray-950 hover:bg-amber-500'
+                      : 'hover:bg-gray-800 text-gray-500 hover:text-amber-500'
+                  }`}
+                  title={isNarrating ? 'Stop Narration' : 'Read Aloud'}
+                >
+                  {isNarrating ? (
+                    <Pause className="w-4 h-4" />
+                  ) : (
+                    <Volume2 className="w-4 h-4" />
+                  )}
+                </button>
                 <button onClick={saveStory} className="p-2 hover:bg-gray-800 rounded" title="Save">
                   <Save className="w-4 h-4 text-gray-500 hover:text-amber-500" />
                 </button>
@@ -6542,7 +6966,7 @@ IMPORTANT:
       {screen === 'characterChat' && chatCharacter && (
         <div className="h-screen bg-gradient-to-b from-gray-950 via-gray-900 to-gray-950 flex flex-col">
           {/* Header */}
-          <header className="flex items-center justify-between px-6 py-4 border-b border-gray-800 bg-gray-900/80 backdrop-blur-sm">
+          <header className="flex items-center justify-between px-4 py-4 border-b border-gray-800 bg-gray-900/80 backdrop-blur-sm">
             <button
               onClick={() => {
                 // AUTO-SAVE: Save story when leaving chat
@@ -6551,16 +6975,47 @@ IMPORTANT:
                 setChatCharacter(null);
                 setChatMessages([]);
               }}
-              className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors"
+              className="flex items-center gap-2 px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white rounded-lg transition-colors"
             >
               <Home className="w-4 h-4" />
-              <span className="text-sm">Library</span>
+              <span className="text-sm font-medium">Library</span>
             </button>
             <div className="text-center">
               <h1 className="text-lg font-bold text-white">{chatCharacter.name || 'Character'}</h1>
               <p className="text-xs text-amber-500">{chatCharacter.role || 'Story Character'}</p>
+              {chatMessages.length > 1 && (
+                <button
+                  onClick={() => {
+                    if (confirm(`Clear chat history with ${chatCharacter.name}?`)) {
+                      storage.clearCharacterConversation(chatCharacter.id);
+                      setChatMessages([{
+                        role: 'character',
+                        content: `*${chatCharacter.name} looks up* Starting fresh? Alright, what would you like to talk about?`
+                      }]);
+                    }
+                  }}
+                  className="text-xs text-gray-600 hover:text-gray-400 mt-1"
+                >
+                  Clear history
+                </button>
+              )}
             </div>
-            <div className="w-16" /> {/* Spacer for alignment */}
+            {storyBible ? (
+              <button
+                onClick={() => {
+                  autoSaveStory();
+                  setChatCharacter(null);
+                  setChatMessages([]);
+                  setScreen('reading');
+                }}
+                className="flex items-center gap-2 px-3 py-2 bg-amber-600 hover:bg-amber-500 text-gray-950 rounded-lg transition-colors"
+              >
+                <BookOpen className="w-4 h-4" />
+                <span className="text-sm font-medium">Story</span>
+              </button>
+            ) : (
+              <div className="w-20" />
+            )}
           </header>
 
           {/* Chat Messages */}

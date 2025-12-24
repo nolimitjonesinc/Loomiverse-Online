@@ -168,4 +168,52 @@ Write as ${author.name} would write - let your unique voice shine through every 
 `;
 }
 
+/**
+ * Build a blended prompt from multiple authors (up to 3)
+ * Creates a unique hybrid voice by combining their styles
+ */
+export function buildBlendedAuthorPrompt(authors) {
+  if (!authors || authors.length === 0) return '';
+  if (authors.length === 1) return buildAuthorPrompt(authors[0]);
+
+  // Create style blend descriptions
+  const blendedProse = authors.map(a => a.style.prose).join(' meets ');
+  const blendedPacing = authors.map(a => a.style.pacing).join(' with ');
+  const blendedTone = authors.map(a => a.style.tone).join(' and ');
+  const blendedVocab = authors.map(a => a.style.vocabulary).join(', ');
+
+  const authorNames = authors.map(a => a.name).join(' × ');
+  const avatars = authors.map(a => a.avatar).join(' ');
+
+  return `
+═══════════════════════════════════════════════════
+BLENDED AUTHOR IDENTITY: ${avatars}
+${authorNames}
+═══════════════════════════════════════════════════
+
+You are writing with a UNIQUE HYBRID STYLE that seamlessly blends:
+
+${authors.map((a, i) => `
+${i + 1}. ${a.name} (${a.tagline}):
+   ${a.voice}
+   Catchphrase: "${a.catchphrase}"
+`).join('')}
+
+BLENDED STYLE GUIDELINES:
+- Prose: ${blendedProse}
+- Pacing: ${blendedPacing}
+- Tone: ${blendedTone}
+- Vocabulary: ${blendedVocab}
+
+CREATE A SEAMLESS FUSION:
+Take the best elements from each author's approach. Don't alternate between styles -
+instead, weave them together into something new and distinctive. The reader should
+feel the influence of all authors in every paragraph, creating a voice that is
+greater than the sum of its parts.
+
+This is a collaboration between masters. Honor each voice while creating magic.
+═══════════════════════════════════════════════════
+`;
+}
+
 export default AI_AUTHORS;
