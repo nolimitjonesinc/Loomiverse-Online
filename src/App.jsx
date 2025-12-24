@@ -1887,6 +1887,27 @@ END STORY BIBLE
 // SECTION 6: AI PROVIDERS
 // ============================================
 
+// Fetch with timeout - prevents infinite hanging on mobile
+const fetchWithTimeout = async (url, options, timeoutMs = 30000) => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error(`Request timed out after ${timeoutMs / 1000}s`);
+    }
+    throw error;
+  }
+};
+
 // AI Providers - Uses Vercel serverless functions to avoid CORS issues
 // API keys are stored in Vercel environment variables, not in the browser
 const AI_PROVIDERS = {
@@ -2710,7 +2731,7 @@ Output ONLY valid JSON:
       const provider = AI_PROVIDERS[providerKey];
 
       try {
-        const response = await fetch(provider.endpoint, {
+        const response = await fetchWithTimeout(provider.endpoint, {
           method: 'POST',
           headers: provider.formatHeaders(),
           body: JSON.stringify(provider.formatRequest(systemPrompt, `Generate a unique ${genreData.name} story premise. Return ONLY valid JSON.`))
@@ -2791,7 +2812,7 @@ Guidelines:
       const provider = AI_PROVIDERS[providerKey];
 
       try {
-        const response = await fetch(provider.endpoint, {
+        const response = await fetchWithTimeout(provider.endpoint, {
           method: 'POST',
           headers: provider.formatHeaders(),
           body: JSON.stringify(provider.formatRequest(systemPrompt, 'Generate the 10-chapter story outline. Return ONLY valid JSON array.'))
@@ -2865,7 +2886,7 @@ Guidelines:
       const provider = AI_PROVIDERS[providerKey];
 
       try {
-        const response = await fetch(provider.endpoint, {
+        const response = await fetchWithTimeout(provider.endpoint, {
           method: 'POST',
           headers: provider.formatHeaders(),
           body: JSON.stringify(provider.formatRequest(systemPrompt, 'Generate all character names. Return ONLY valid JSON array.'))
@@ -2941,7 +2962,7 @@ Guidelines:
       const provider = AI_PROVIDERS[providerKey];
 
       try {
-        const response = await fetch(provider.endpoint, {
+        const response = await fetchWithTimeout(provider.endpoint, {
           method: 'POST',
           headers: provider.formatHeaders(),
           body: JSON.stringify(provider.formatRequest(systemPrompt, 'Generate a character name. Return ONLY valid JSON.'))
@@ -3020,7 +3041,7 @@ This is casual chat, not an interview. Be real.`;
       const provider = AI_PROVIDERS[providerKey];
 
       try {
-        const response = await fetch(provider.endpoint, {
+        const response = await fetchWithTimeout(provider.endpoint, {
           method: 'POST',
           headers: provider.formatHeaders(),
           body: JSON.stringify(provider.formatRequest(systemPrompt, message))
@@ -3232,7 +3253,7 @@ Output ONLY valid JSON in this format:
       const provider = AI_PROVIDERS[providerKey];
 
       try {
-        const response = await fetch(provider.endpoint, {
+        const response = await fetchWithTimeout(provider.endpoint, {
           method: 'POST',
           headers: provider.formatHeaders(),
           body: JSON.stringify(provider.formatRequest(systemPrompt, userPrompt))
@@ -3405,7 +3426,7 @@ Write a brief 2-3 sentence narrative response to what the reader did/said. Keep 
     for (const providerKey of providers) {
       const provider = AI_PROVIDERS[providerKey];
       try {
-        const response = await fetch(provider.endpoint, {
+        const response = await fetchWithTimeout(provider.endpoint, {
           method: 'POST',
           headers: provider.formatHeaders(),
           body: JSON.stringify(provider.formatRequest(
@@ -3479,7 +3500,7 @@ IMPORTANT:
     for (const providerKey of providers) {
       const provider = AI_PROVIDERS[providerKey];
       try {
-        const response = await fetch(provider.endpoint, {
+        const response = await fetchWithTimeout(provider.endpoint, {
           method: 'POST',
           headers: provider.formatHeaders(),
           body: JSON.stringify(provider.formatRequest(
