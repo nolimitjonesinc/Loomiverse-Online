@@ -1164,13 +1164,21 @@ class StorageManager {
 
   // Stories - Hybrid: localStorage (instant) + cloud (backup)
   saveStory(id, data) {
+    console.log('[Storage] Saving story:', data.bible?.title || id);
+
     // 1. Save to localStorage immediately (fast, works offline)
     localStorage.setItem(this.prefix + 'story_' + id, JSON.stringify(data));
 
     // 2. Sync to cloud in background (if logged in)
-    cloudStorage.saveStory(id, data).catch(e => {
-      console.log('[Storage] Cloud sync queued for later');
-    });
+    cloudStorage.saveStory(id, data)
+      .then(result => {
+        if (result) {
+          console.log('[Storage] Story synced to cloud:', data.bible?.title);
+        }
+      })
+      .catch(e => {
+        console.error('[Storage] Cloud sync failed:', e.message);
+      });
   }
   
   loadStory(id) {
