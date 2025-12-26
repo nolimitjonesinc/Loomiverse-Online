@@ -5476,8 +5476,32 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
                     <button
                       onClick={async () => {
                         try {
-                          await cloudStorage.syncAllFromLocal();
-                          alert('Pushed to cloud successfully!');
+                          // Get local stories to push
+                          const localStories = storage.listStories();
+                          let successCount = 0;
+                          let errors = [];
+
+                          for (const story of localStories) {
+                            try {
+                              const storyData = storage.loadStory(story.id);
+                              if (storyData) {
+                                const result = await cloudStorage.saveStory(story.id, storyData);
+                                if (result) {
+                                  successCount++;
+                                } else {
+                                  errors.push(`${story.title}: Save returned null`);
+                                }
+                              }
+                            } catch (storyErr) {
+                              errors.push(`${story.title}: ${storyErr.message}`);
+                            }
+                          }
+
+                          if (errors.length > 0) {
+                            alert(`Pushed ${successCount}/${localStories.length} stories.\n\nErrors:\n${errors.join('\n')}`);
+                          } else {
+                            alert(`Successfully pushed ${successCount} stories to cloud!`);
+                          }
                         } catch (e) {
                           alert('Sync failed: ' + e.message);
                         }
@@ -5486,6 +5510,33 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
                     >
                       <Upload className="w-4 h-4" /> Push to Cloud
                     </button>
+                  </div>
+
+                  {/* Clear Library */}
+                  <div className="mt-4 pt-4 border-t border-red-900/30">
+                    <button
+                      onClick={() => {
+                        if (confirm('⚠️ DELETE ALL LOCAL STORIES?\n\nThis will clear your browser\'s local storage. Stories in the cloud (if any) will NOT be deleted.\n\nThis cannot be undone!')) {
+                          if (confirm('Are you REALLY sure? Type OK to confirm.')) {
+                            // Clear all story keys from localStorage
+                            const keysToRemove = [];
+                            for (let i = 0; i < localStorage.length; i++) {
+                              const key = localStorage.key(i);
+                              if (key && key.includes('loomiverse_story_')) {
+                                keysToRemove.push(key);
+                              }
+                            }
+                            keysToRemove.forEach(k => localStorage.removeItem(k));
+                            setSavedStories([]);
+                            alert(`Cleared ${keysToRemove.length} stories from local storage.`);
+                          }
+                        }
+                      }}
+                      className="w-full py-2 bg-red-900/30 hover:bg-red-800/50 text-red-400 text-sm rounded border border-red-800/50"
+                    >
+                      🗑️ Clear Local Library
+                    </button>
+                    <p className="text-xs text-red-400/60 mt-1 text-center">Deletes all stories from this browser only</p>
                   </div>
                 </div>
               )}

@@ -55,11 +55,14 @@ class CloudStorageManager {
 
   async saveStory(localId, data) {
     if (!this.canSync()) {
+      console.log('[Cloud] Cannot sync - online:', this.isOnline, 'user:', !!this.user);
       this.queueSync('story', 'upsert', { localId, data });
       return null;
     }
 
     try {
+      console.log('[Cloud] Saving story:', data.bible?.title, 'for user:', this.user.id);
+
       const { data: result, error } = await supabase
         .from('loom_stories')
         .upsert({
@@ -80,13 +83,16 @@ class CloudStorageManager {
         .select()
         .single();
 
-      if (error) throw error;
-      console.log('[Cloud] Story saved:', data.bible?.title);
+      if (error) {
+        console.error('[Cloud] Supabase error:', error.code, error.message, error.details, error.hint);
+        throw error;
+      }
+      console.log('[Cloud] Story saved successfully:', data.bible?.title);
       return result;
     } catch (error) {
-      console.error('[Cloud] Save story failed:', error.message);
+      console.error('[Cloud] Save story failed:', error.message, error);
       this.queueSync('story', 'upsert', { localId, data });
-      return null;
+      throw error; // Re-throw so caller can see the error
     }
   }
 
