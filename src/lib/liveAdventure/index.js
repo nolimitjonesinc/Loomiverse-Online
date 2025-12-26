@@ -48,6 +48,13 @@ export {
 // Also export as alias for direct access
 export { TENSION_LEVELS as TM_TENSION_LEVELS } from './TensionManager.js';
 
+// Surprise & Delight modules
+export * from './CharacterEvolution.js';
+export * from './HiddenThreads.js';
+export * from './EmergentMoments.js';
+export * from './CharacterCrossTalk.js';
+export * from './BreathSystem.js';
+
 // Import for internal use
 import {
   createAdventureState,
@@ -450,6 +457,13 @@ import {
   GENRE_PROFILES
 } from './TensionManager.js';
 
+// Import surprise & delight modules for default export
+import { createEvolutionTracker, GROWTH_DIMENSIONS, ARC_PATTERNS, CATALYSTS, RESISTANCE } from './CharacterEvolution.js';
+import { createHiddenThreads, THREAD_TYPES, THREAD_STATES, REVELATION_STYLES } from './HiddenThreads.js';
+import { createEmergentSystem, MOMENT_TYPES, CONDITIONS, INTENSITY as MOMENT_INTENSITY } from './EmergentMoments.js';
+import { createCrossTalkSystem, CROSSTALK_TYPES, DYNAMICS, TRIGGERS } from './CharacterCrossTalk.js';
+import { createBreathSystem, BREATH_TYPES, DURATIONS, SENSORY } from './BreathSystem.js';
+
 // Default export
 export default {
   // Core engine
@@ -470,7 +484,14 @@ export default {
   createMemorySystem,
   createTensionManager,
 
-  // Constants
+  // Surprise & delight
+  createEvolutionTracker,
+  createHiddenThreads,
+  createEmergentSystem,
+  createCrossTalkSystem,
+  createBreathSystem,
+
+  // Psychological depth constants
   COMFORT_LEVELS,
   CONTENT_ELEMENTS,
   BOND_TYPES,
@@ -483,5 +504,23 @@ export default {
   MEMORY_VALENCE,
   PACING_MODES,
   TENSION_EVENTS,
-  GENRE_PROFILES
+  GENRE_PROFILES,
+
+  // Surprise & delight constants
+  GROWTH_DIMENSIONS,
+  ARC_PATTERNS,
+  CATALYSTS,
+  RESISTANCE,
+  THREAD_TYPES,
+  THREAD_STATES,
+  REVELATION_STYLES,
+  MOMENT_TYPES,
+  CONDITIONS,
+  MOMENT_INTENSITY,
+  CROSSTALK_TYPES,
+  DYNAMICS,
+  TRIGGERS,
+  BREATH_TYPES,
+  DURATIONS,
+  SENSORY
 };
