@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Save, Library, Globe, Upload, BookOpen, X, Settings, User, Sparkles, Play, Pause, Volume2, VolumeX, ChevronRight, Heart, Brain, Home, Users, Zap, Pencil, Archive, Bookmark, FolderPlus, MoreVertical, Trash2, MessageCircle, Send, Cloud, CloudOff, LogIn, LogOut, Download, Check, Square, CheckSquare, Share2, Copy, Link, ExternalLink, Clock } from 'lucide-react';
+import { Save, Library, Globe, Upload, BookOpen, X, Settings, User, Sparkles, Play, Pause, Volume2, VolumeX, ChevronRight, Heart, Brain, Home, Users, Zap, Pencil, Archive, Bookmark, FolderPlus, MoreVertical, Trash2, MessageCircle, Send, Cloud, CloudOff, LogIn, LogOut, Download, Check, Square, CheckSquare, Share2, Copy, Link, ExternalLink, Clock, Eye, EyeOff } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 
 // Import author styles from iOS app (25+ writing styles)
@@ -2428,6 +2428,7 @@ export default function Loomiverse() {
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authDisplayName, setAuthDisplayName] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   // Reading Mode: 'choices' (default), 'interactive' (player types action), 'narrator' (player guides story)
   const [readingMode, setReadingMode] = useState('choices');
@@ -2514,8 +2515,8 @@ export default function Loomiverse() {
       setAuthUser(session?.user || null);
       if (event === 'SIGNED_IN') {
         console.log('[Auth] Signed in:', session?.user?.email);
-        // Trigger cloud sync
-        cloudStorage.syncAllFromLocal();
+        // Note: Sync is handled in handleSignUp (push to cloud) and handleSignIn (pull from cloud)
+        // Don't auto-sync here to avoid overwriting cloud data on new devices
       } else if (event === 'SIGNED_OUT') {
         console.log('[Auth] Signed out');
       }
@@ -2570,8 +2571,16 @@ export default function Loomiverse() {
       setAuthEmail('');
       setAuthPassword('');
       setAuthDisplayName('');
+      setShowPassword(false);
       if (data.session) {
         console.log('[Auth] Signup successful, auto logged in');
+        // New account - push local data to cloud
+        try {
+          await cloudStorage.syncAllFromLocal();
+          console.log('[Auth] Local data synced to cloud');
+        } catch (e) {
+          console.log('[Auth] Cloud sync skipped:', e.message);
+        }
       } else {
         alert('Check your email to confirm your account!');
       }
@@ -2595,6 +2604,7 @@ export default function Loomiverse() {
       setShowAuthModal(false);
       setAuthEmail('');
       setAuthPassword('');
+      setShowPassword(false);
       console.log('[Auth] Sign in successful');
 
       // Pull stories from cloud to local (for new device or after clearing data)
@@ -2602,6 +2612,11 @@ export default function Loomiverse() {
         await cloudStorage.syncAllToLocal();
         // Refresh the stories list
         setSavedStories(storage.listStories());
+        // Also refresh characters if they exist
+        const chars = localStorage.getItem('loomiverse_characters');
+        if (chars) {
+          setAllCharacters(JSON.parse(chars));
+        }
         console.log('[Auth] Cloud sync to local complete');
       } catch (e) {
         console.log('[Auth] Cloud sync skipped:', e.message);
@@ -4944,8 +4959,8 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
 
       {/* Settings Modal */}
       {showSettings && (
-        <div className="fixed inset-0 z-50 bg-gray-950/95 flex items-center justify-center p-8">
-          <div className="bg-gray-900 border border-gray-800 rounded-lg max-w-md w-full p-6">
+        <div className="fixed inset-0 z-50 bg-gray-950/95 flex items-center justify-center p-4 sm:p-8 overflow-y-auto">
+          <div className="bg-gray-900 border border-gray-800 rounded-lg max-w-md w-full p-6 my-auto max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold flex items-center gap-2">
                 <Settings className="w-5 h-5 text-amber-500" /> Settings
@@ -5128,6 +5143,49 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
                   )}
                 </div>
               </div>
+
+              {/* Cloud Sync Section */}
+              {authUser && (
+                <div className="pt-4 border-t border-gray-800">
+                  <h3 className="text-sm font-bold text-amber-500 mb-3 flex items-center gap-2">
+                    <Cloud className="w-4 h-4" /> Cloud Sync
+                  </h3>
+                  <p className="text-xs text-gray-500 mb-3">
+                    Signed in as {authUser.user_metadata?.display_name || authUser.email}
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={async () => {
+                        try {
+                          await cloudStorage.syncAllToLocal();
+                          setSavedStories(storage.listStories());
+                          const chars = localStorage.getItem('loomiverse_characters');
+                          if (chars) setAllCharacters(JSON.parse(chars));
+                          alert('Synced from cloud successfully!');
+                        } catch (e) {
+                          alert('Sync failed: ' + e.message);
+                        }
+                      }}
+                      className="flex-1 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm rounded flex items-center justify-center gap-2"
+                    >
+                      <Download className="w-4 h-4" /> Pull from Cloud
+                    </button>
+                    <button
+                      onClick={async () => {
+                        try {
+                          await cloudStorage.syncAllFromLocal();
+                          alert('Pushed to cloud successfully!');
+                        } catch (e) {
+                          alert('Sync failed: ' + e.message);
+                        }
+                      }}
+                      className="flex-1 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm rounded flex items-center justify-center gap-2"
+                    >
+                      <Upload className="w-4 h-4" /> Push to Cloud
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <button
                 onClick={saveSettings}
@@ -5422,8 +5480,8 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
               {/* Auth Button */}
               {authUser ? (
                 <div className="flex items-center gap-3">
-                  <span className="hidden md:inline text-xs text-gray-500 truncate max-w-[150px]">
-                    {authUser.email}
+                  <span className="hidden md:inline text-xs text-amber-500/80 truncate max-w-[150px]">
+                    {authUser.user_metadata?.display_name || authUser.email?.split('@')[0]}
                   </span>
                   <button
                     onClick={handleSignOut}
@@ -6839,12 +6897,25 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
                 <User className="w-12 h-12 text-gray-950" />
               </div>
               <div>
-                <h2 className="text-3xl font-bold">{userProfile?.displayName || 'Storyteller'}</h2>
+                <h2 className="text-3xl font-bold">
+                  {authUser?.user_metadata?.display_name || userProfile?.displayName || authUser?.email?.split('@')[0] || 'Storyteller'}
+                </h2>
+                {authUser?.email && (
+                  <p className="text-amber-500/80 text-sm">{authUser.email}</p>
+                )}
                 <p className="text-gray-500">Member since {userProfile?.createdAt ? new Date(userProfile.createdAt).toLocaleDateString() : 'Today'}</p>
                 {userProfile?.stats?.currentStreak > 0 && (
                   <p className="text-amber-500 flex items-center gap-1 mt-1">
                     🔥 {userProfile.stats.currentStreak} day streak
                   </p>
+                )}
+                {!authUser && (
+                  <button
+                    onClick={() => setShowAuthModal(true)}
+                    className="mt-2 text-sm text-amber-500 hover:text-amber-400 flex items-center gap-1"
+                  >
+                    <LogIn className="w-4 h-4" /> Sign in to sync across devices
+                  </button>
                 )}
               </div>
             </div>
@@ -8929,15 +9000,24 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
 
               <div className="mb-6">
                 <label className="block text-sm text-gray-400 mb-1">Password</label>
-                <input
-                  type="password"
-                  value={authPassword}
-                  onChange={(e) => setAuthPassword(e.target.value)}
-                  placeholder="••••••••"
-                  required
-                  minLength={6}
-                  className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:border-amber-500/50 focus:outline-none transition-colors"
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={authPassword}
+                    onChange={(e) => setAuthPassword(e.target.value)}
+                    placeholder="••••••••"
+                    required
+                    minLength={6}
+                    className="w-full px-4 py-3 pr-12 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:border-amber-500/50 focus:outline-none transition-colors"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition-colors"
+                  >
+                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                </div>
               </div>
 
               <button

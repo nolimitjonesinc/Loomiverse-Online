@@ -37,7 +37,9 @@ class CloudStorageManager {
       this.user = session?.user || null;
       if (this.user) {
         console.log('[Cloud] User signed in:', this.user.email);
-        this.syncAllFromLocal(); // Sync local data to cloud on login
+        // Note: Don't auto-sync here - let the app handle sync direction
+        // On signup: app calls syncAllFromLocal (push local to cloud)
+        // On signin: app calls syncAllToLocal (pull cloud to local)
       }
     });
   }
