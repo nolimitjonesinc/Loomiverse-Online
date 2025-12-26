@@ -3697,65 +3697,8 @@ Output ONLY valid JSON in this format:
       }
     }
 
-    // Fallback to demo
-    return getDemoChapter(chapterNum);
-  };
-
-  // Demo chapters as fallback
-  const getDemoChapter = (num) => {
-    const demos = {
-      1: {
-        title: "The Forge's Secret",
-        content: `The hammer fell like thunder, sparks dancing like captured stars. ${selectedCharacter?.name || 'The protagonist'} wiped soot from brow, muscles aching, yet unable to stop. Something whispered in the metal tonight.
-
-"Still at it?" Master Aldric's weathered face held fear. "Put down the hammer."
-
-"I can't." Hands moved of their own accord, shaping metal glowing impossible gold—not red iron, but pure burning gold.
-
-The forge fire roared wilder, pressing against the ceiling. In its heart, a crown made of living flame waited.
-
-"The blood remembers," Aldric whispered. "The fire mage bloodline wasn't extinguished after all."`,
-        choices: [
-          { id: 'reach', text: 'Reach into the flames toward the crown', hint: 'Embrace your power' },
-          { id: 'flee', text: 'Drop the hammer and flee the forge', hint: 'Deny your heritage' },
-          { id: 'question', text: 'Demand answers from Aldric first', hint: 'Seek knowledge' }
-        ],
-        summary: "Discovers forbidden fire magic. Mentor Aldric reveals fire mage bloodline.",
-        newCharacters: [
-          { name: selectedCharacter?.name || 'Protagonist', role: 'Protagonist', traits: ['determined', 'curious'] },
-          { name: 'Master Aldric', role: 'Mentor', traits: ['wise', 'secretive'] }
-        ],
-        newWorldFacts: [
-          { fact: 'Fire mages once ruled but were hunted to extinction', category: 'history', importance: 'critical' },
-          { fact: 'The Ember Crown is a legendary fire magic artifact', category: 'magic', importance: 'critical' }
-        ],
-        _generatedBy: 'demo'
-      },
-      2: {
-        title: "Blood and Fire",
-        content: `Morning light found ${selectedCharacter?.name || 'them'} sleepless, haunted by the flaming crown. Aldric watched nervously.
-
-"What happened last night?" The demand came sharp.
-
-Heavy silence. Then: "Twenty years ago, fire mages ruled. The Ember Crown was real. I saw it."
-
-"How?"
-
-"I was there when King Varen's soldiers killed its last wearer." His voice dropped. "Your mother."`,
-        choices: [
-          { id: 'demand', text: 'Demand everything about your mother', hint: 'Learn your history' },
-          { id: 'power', text: 'Try to summon the flames again', hint: 'Test abilities' },
-          { id: 'leave', text: 'Leave to protect Aldric from danger', hint: 'Protect mentor' }
-        ],
-        summary: "Aldric reveals mother wore the Ember Crown before being killed by the king.",
-        newCharacters: [],
-        newWorldFacts: [
-          { fact: "Protagonist's mother was the last fire mage queen", category: 'history', importance: 'critical' }
-        ],
-        _generatedBy: 'demo'
-      }
-    };
-    return demos[num] || demos[1];
+    // NO fallback - throw error so user knows something went wrong
+    throw new Error('All AI providers failed to generate chapter. Please check your API keys in Settings.');
   };
 
   // Begin story
@@ -5517,7 +5460,7 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
                     <button
                       onClick={() => {
                         if (confirm('⚠️ DELETE ALL LOCAL STORIES?\n\nThis will clear your browser\'s local storage. Stories in the cloud (if any) will NOT be deleted.\n\nThis cannot be undone!')) {
-                          if (confirm('Are you REALLY sure? Type OK to confirm.')) {
+                          if (confirm('Are you REALLY sure?')) {
                             // Clear all story keys from localStorage
                             const keysToRemove = [];
                             for (let i = 0; i < localStorage.length; i++) {
@@ -5536,7 +5479,30 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
                     >
                       🗑️ Clear Local Library
                     </button>
-                    <p className="text-xs text-red-400/60 mt-1 text-center">Deletes all stories from this browser only</p>
+                    <button
+                      onClick={async () => {
+                        if (confirm('⚠️ FULL RESET\n\nThis will:\n- Clear ALL localStorage (stories, settings, etc.)\n- Clear service worker cache\n- Force reload the page\n\nYou will need to sign in again.')) {
+                          // Clear all localStorage
+                          localStorage.clear();
+                          // Clear service worker caches
+                          if ('caches' in window) {
+                            const keys = await caches.keys();
+                            await Promise.all(keys.map(k => caches.delete(k)));
+                          }
+                          // Unregister service worker
+                          if ('serviceWorker' in navigator) {
+                            const regs = await navigator.serviceWorker.getRegistrations();
+                            await Promise.all(regs.map(r => r.unregister()));
+                          }
+                          alert('Cache cleared. Page will reload.');
+                          window.location.reload(true);
+                        }
+                      }}
+                      className="w-full mt-2 py-2 bg-red-800/50 hover:bg-red-700/60 text-red-300 text-sm rounded border border-red-700/50"
+                    >
+                      ☢️ Full Reset (Clear Everything)
+                    </button>
+                    <p className="text-xs text-red-400/60 mt-1 text-center">Use Full Reset if things aren't working right</p>
                   </div>
                 </div>
               )}
