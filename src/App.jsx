@@ -2373,7 +2373,7 @@ export default function Loomiverse() {
   const [selectedAIAuthors, setSelectedAIAuthors] = useState([]); // Array of up to 3 authors for blending
   const [showWritersRoom, setShowWritersRoom] = useState(false);
   const [expandedCharacter, setExpandedCharacter] = useState(null);
-  const [characterFilter, setCharacterFilter] = useState('all'); // 'all', 'user', 'story'
+  const [characterFilter, setCharacterFilter] = useState('heroes'); // 'heroes', 'all', 'user', 'story'
 
   // Story Mode Selection
   const [showModeSelection, setShowModeSelection] = useState(false);
@@ -2442,6 +2442,38 @@ export default function Loomiverse() {
   const [authPassword, setAuthPassword] = useState('');
   const [authDisplayName, setAuthDisplayName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState(null);
+
+  // Manual sync function
+  const handleManualSync = async () => {
+    if (!authUser || isSyncing) return;
+
+    setIsSyncing(true);
+    try {
+      // Push local changes to cloud first
+      await cloudStorage.syncAllFromLocal();
+      // Then pull any cloud changes
+      await cloudStorage.syncAllToLocal();
+
+      // Refresh stories list
+      const refreshedStories = storage.listStories();
+      setSavedStories(refreshedStories);
+
+      // Refresh characters
+      const chars = localStorage.getItem('loomiverse_characters');
+      if (chars) {
+        setAllCharacters(JSON.parse(chars));
+      }
+
+      setLastSyncTime(new Date());
+      console.log('[Sync] Manual sync complete');
+    } catch (e) {
+      console.error('[Sync] Manual sync error:', e.message);
+      alert('Sync failed: ' + e.message);
+    }
+    setIsSyncing(false);
+  };
 
   // Reading Mode: 'choices' (default), 'interactive' (player types action), 'narrator' (player guides story)
   const [readingMode, setReadingMode] = useState('choices');
@@ -2628,15 +2660,24 @@ export default function Loomiverse() {
 
       // Pull stories from cloud to local (for new device or after clearing data)
       try {
-        await cloudStorage.syncAllToLocal();
+        const syncResult = await cloudStorage.syncAllToLocal();
         // Refresh the stories list
-        setSavedStories(storage.listStories());
+        const refreshedStories = storage.listStories();
+        setSavedStories(refreshedStories);
         // Also refresh characters if they exist
         const chars = localStorage.getItem('loomiverse_characters');
         if (chars) {
           setAllCharacters(JSON.parse(chars));
         }
         console.log('[Auth] Cloud sync to local complete');
+
+        // Show success message to user
+        const storyCount = refreshedStories.length;
+        if (storyCount > 0) {
+          setTimeout(() => {
+            alert(`Welcome back, Loominary! ${storyCount} ${storyCount === 1 ? 'story' : 'stories'} synced from cloud.`);
+          }, 500);
+        }
       } catch (e) {
         console.log('[Auth] Cloud sync skipped:', e.message);
       }
@@ -5693,17 +5734,29 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
             <div className="flex items-center gap-4">
               {/* Cloud Sync Status */}
               {authUser ? (
-                <div className="flex items-center gap-2 px-3 py-1.5 bg-green-500/10 border border-green-500/30 rounded-full">
-                  <Cloud className="w-3 h-3 text-green-500" />
-                  <span className="text-xs text-green-400 hidden sm:inline">Synced</span>
-                </div>
+                <button
+                  onClick={handleManualSync}
+                  disabled={isSyncing}
+                  className={`flex items-center gap-2 px-3 py-1.5 border rounded-full transition-colors ${
+                    isSyncing
+                      ? 'bg-blue-500/10 border-blue-500/30 cursor-wait'
+                      : 'bg-green-500/10 border-green-500/30 hover:bg-green-500/20'
+                  }`}
+                  title={lastSyncTime ? `Last synced: ${lastSyncTime.toLocaleTimeString()}` : 'Click to sync'}
+                >
+                  <Cloud className={`w-3 h-3 ${isSyncing ? 'text-blue-500 animate-spin' : 'text-green-500'}`} />
+                  <span className={`text-xs ${isSyncing ? 'text-blue-400' : 'text-green-400'}`}>
+                    {isSyncing ? 'Syncing...' : 'Synced'}
+                  </span>
+                </button>
               ) : (
                 <button
                   onClick={() => setShowAuthModal(true)}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 border border-amber-500/30 rounded-full hover:bg-amber-500/20 transition-colors"
+                  className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 border border-amber-500/30 rounded-full hover:bg-amber-500/20 transition-colors animate-pulse"
+                  title="Sign in to sync stories across devices"
                 >
                   <CloudOff className="w-3 h-3 text-amber-500" />
-                  <span className="text-xs text-amber-400 hidden sm:inline">Sign in to sync</span>
+                  <span className="text-xs text-amber-400">Sync</span>
                 </button>
               )}
 
@@ -5753,12 +5806,27 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
           {/* Main Content Grid */}
           <div className="max-w-6xl mx-auto">
             {/* Welcome Section */}
-            <div className="text-center mb-12">
+            <div className="text-center mb-8">
               <h2 className="text-4xl md:text-5xl font-bold mb-3">
                 Welcome to Your Library
               </h2>
               <p className="text-lg opacity-60 italic">Where every choice weaves destiny</p>
             </div>
+
+            {/* Sync Banner - Show when not signed in */}
+            {!authUser && savedStories.length > 0 && (
+              <button
+                onClick={() => setShowAuthModal(true)}
+                className="w-full mb-8 p-4 bg-gradient-to-r from-amber-500/20 via-purple-500/20 to-amber-500/20 border border-amber-500/30 rounded-xl flex items-center justify-center gap-3 hover:from-amber-500/30 hover:via-purple-500/30 hover:to-amber-500/30 transition-all group"
+              >
+                <Cloud className="w-5 h-5 text-amber-400 group-hover:scale-110 transition-transform" />
+                <div className="text-left">
+                  <p className="text-amber-400 font-medium text-sm">Sync Stories Across Devices</p>
+                  <p className="text-amber-500/70 text-xs">Sign in to access your stories on mobile, tablet, and desktop</p>
+                </div>
+                <ChevronRight className="w-5 h-5 text-amber-400 opacity-50 group-hover:opacity-100 transition-opacity" />
+              </button>
+            )}
 
             {/* Currently Reading Section */}
             {savedStories.length > 0 && (
@@ -5995,12 +6063,28 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
           </div>
 
           {/* Filter Buttons */}
-          <div className="flex gap-2 mb-6">
+          <div className="flex flex-wrap gap-2 mb-6">
+            <button
+              onClick={() => setCharacterFilter('heroes')}
+              className={`px-4 py-2 rounded text-sm transition-all ${
+                characterFilter === 'heroes'
+                  ? 'bg-amber-600 text-gray-950 font-bold'
+                  : 'border border-gray-700 text-gray-400 hover:border-gray-500'
+              }`}
+            >
+              Heroes & Main ({characters.filter(c =>
+                c.role?.toLowerCase().includes('protagonist') ||
+                c.role?.toLowerCase().includes('hero') ||
+                c.origin === 'user' ||
+                !c.origin ||
+                !c.role?.toLowerCase().includes('supporting')
+              ).length})
+            </button>
             <button
               onClick={() => setCharacterFilter('all')}
               className={`px-4 py-2 rounded text-sm transition-all ${
-                characterFilter === 'all' 
-                  ? 'bg-amber-600 text-gray-950 font-bold' 
+                characterFilter === 'all'
+                  ? 'bg-amber-600 text-gray-950 font-bold'
                   : 'border border-gray-700 text-gray-400 hover:border-gray-500'
               }`}
             >
@@ -6009,8 +6093,8 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
             <button
               onClick={() => setCharacterFilter('user')}
               className={`px-4 py-2 rounded text-sm transition-all ${
-                characterFilter === 'user' 
-                  ? 'bg-amber-600 text-gray-950 font-bold' 
+                characterFilter === 'user'
+                  ? 'bg-amber-600 text-gray-950 font-bold'
                   : 'border border-gray-700 text-gray-400 hover:border-gray-500'
               }`}
             >
@@ -6019,8 +6103,8 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
             <button
               onClick={() => setCharacterFilter('story')}
               className={`px-4 py-2 rounded text-sm transition-all ${
-                characterFilter === 'story' 
-                  ? 'bg-amber-600 text-gray-950 font-bold' 
+                characterFilter === 'story'
+                  ? 'bg-amber-600 text-gray-950 font-bold'
                   : 'border border-gray-700 text-gray-400 hover:border-gray-500'
               }`}
             >
@@ -6029,20 +6113,29 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
           </div>
 
           {(() => {
-            const filteredCharacters = characterFilter === 'all' 
-              ? characters 
-              : characterFilter === 'user'
-                ? characters.filter(c => c.origin === 'user' || !c.origin)
-                : characters.filter(c => c.origin === 'story');
-            
+            const filteredCharacters = characterFilter === 'all'
+              ? characters
+              : characterFilter === 'heroes'
+                ? characters.filter(c =>
+                    c.role?.toLowerCase().includes('protagonist') ||
+                    c.role?.toLowerCase().includes('hero') ||
+                    c.origin === 'user' ||
+                    !c.origin ||
+                    !c.role?.toLowerCase().includes('supporting')
+                  )
+                : characterFilter === 'user'
+                  ? characters.filter(c => c.origin === 'user' || !c.origin)
+                  : characters.filter(c => c.origin === 'story');
+
             return filteredCharacters.length === 0 ? (
             <div className="text-center py-16">
               <User className="w-16 h-16 text-gray-700 mx-auto mb-4" />
               <p className="text-gray-500 mb-4">
-                {characterFilter === 'all' ? 'No characters yet' : 
+                {characterFilter === 'all' ? 'No characters yet' :
+                 characterFilter === 'heroes' ? 'No hero characters yet' :
                  characterFilter === 'user' ? 'No user-created characters' : 'No characters from stories'}
               </p>
-              {characterFilter === 'all' && (
+              {(characterFilter === 'all' || characterFilter === 'heroes') && (
                 <button
                   onClick={generateNewCharacter}
                   className="px-6 py-3 border border-amber-500 text-amber-500 hover:bg-amber-500 hover:text-gray-950 rounded"
@@ -7343,6 +7436,53 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
 
           {/* Genre Categories */}
           <div className="w-full max-w-5xl space-y-8">
+            {/* Your Favorites - Dynamic based on usage */}
+            {userProfile?.genreUsage && Object.keys(userProfile.genreUsage).length > 0 && (
+              <div>
+                <h3 className="text-xs text-amber-500 uppercase tracking-widest mb-3 font-bold flex items-center gap-2">
+                  <Sparkles className="w-3 h-3" /> Your Favorites
+                </h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {Object.entries(userProfile.genreUsage)
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 4)
+                    .map(([key, count], index) => {
+                      const genre = genres[key];
+                      if (!genre) return null;
+                      const hasImage = GENRE_IMAGES[key];
+                      return (
+                        <button
+                          key={key}
+                          onClick={() => selectGenre(key)}
+                          className={`genre-card-dramatic relative overflow-hidden bg-gray-900/50 text-center rounded-lg group animate-cascade ${hasImage ? 'h-36' : 'p-4'} ring-2 ring-amber-500/30`}
+                          style={{ animationDelay: `${index * 0.08}s` }}
+                        >
+                          {hasImage ? (
+                            <>
+                              <img
+                                src={`/images/genres/${GENRE_IMAGES[key]}`}
+                                alt={genre.name}
+                                className="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:opacity-90 group-hover:scale-110 transition-all duration-500"
+                              />
+                              <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-950/60 to-transparent" />
+                              <div className="absolute bottom-0 left-0 right-0 p-3 z-10">
+                                <h4 className="font-bold text-sm text-white drop-shadow-lg">{genre.name}</h4>
+                                <p className="text-xs text-amber-400">{count} {count === 1 ? 'story' : 'stories'}</p>
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <h4 className="font-bold text-sm py-2">{genre.name}</h4>
+                              <p className="text-xs text-amber-400">{count} {count === 1 ? 'story' : 'stories'}</p>
+                            </>
+                          )}
+                        </button>
+                      );
+                    })}
+                </div>
+              </div>
+            )}
+
             {/* Fantasy & Sci-Fi */}
             <div>
               <h3 className="text-xs text-amber-500 uppercase tracking-widest mb-3 font-bold">Speculative Fiction</h3>
