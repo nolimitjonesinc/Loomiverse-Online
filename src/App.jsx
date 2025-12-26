@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Save, Library, Globe, Upload, BookOpen, X, Settings, User, Sparkles, Play, Pause, Volume2, VolumeX, ChevronRight, Heart, Brain, Home, Users, Zap, Pencil, Archive, Bookmark, FolderPlus, MoreVertical, Trash2, MessageCircle, Send, Cloud, CloudOff, LogIn, LogOut, Download, Check, Square, CheckSquare, Share2, Copy, Link, ExternalLink, Clock, Eye, EyeOff } from 'lucide-react';
+import { Save, Library, Globe, Upload, BookOpen, X, Settings, User, Sparkles, Play, Pause, Volume2, VolumeX, ChevronRight, Heart, Brain, Home, Users, Zap, Pencil, Archive, Bookmark, FolderPlus, MoreVertical, Trash2, MessageCircle, Send, Cloud, CloudOff, LogIn, LogOut, Download, Check, Square, CheckSquare, Share2, Copy, Link, ExternalLink, Clock, Eye, EyeOff, Shield } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 
 // Import author styles from iOS app (25+ writing styles)
@@ -20,6 +20,7 @@ import {
   EMOTIONAL_BEATS
 } from './lib/liveAdventure/index.js';
 import { AdventureScreen } from './components/LiveAdventure/index.js';
+import AdminPanel from './components/AdminPanel.jsx';
 
 // ============================================
 // SECTION 1: CHARACTER GENERATION DATA
@@ -2463,7 +2464,7 @@ export default function Loomiverse() {
       // Refresh characters
       const chars = localStorage.getItem('loomiverse_characters');
       if (chars) {
-        setAllCharacters(JSON.parse(chars));
+        setCharacters(JSON.parse(chars));
       }
 
       setLastSyncTime(new Date());
@@ -2474,6 +2475,9 @@ export default function Loomiverse() {
     }
     setIsSyncing(false);
   };
+
+  // Admin Panel
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
 
   // Reading Mode: 'choices' (default), 'interactive' (player types action), 'narrator' (player guides story)
   const [readingMode, setReadingMode] = useState('choices');
@@ -2667,7 +2671,7 @@ export default function Loomiverse() {
         // Also refresh characters if they exist
         const chars = localStorage.getItem('loomiverse_characters');
         if (chars) {
-          setAllCharacters(JSON.parse(chars));
+          setCharacters(JSON.parse(chars));
         }
         console.log('[Auth] Cloud sync to local complete');
 
@@ -5358,7 +5362,7 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
                           await cloudStorage.syncAllToLocal();
                           setSavedStories(storage.listStories());
                           const chars = localStorage.getItem('loomiverse_characters');
-                          if (chars) setAllCharacters(JSON.parse(chars));
+                          if (chars) setCharacters(JSON.parse(chars));
                           alert('Synced from cloud successfully!');
                         } catch (e) {
                           alert('Sync failed: ' + e.message);
@@ -5385,6 +5389,28 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
                 </div>
               )}
 
+              {/* Admin Panel Access - Only show for authenticated users */}
+              {authUser && (
+                <div className="pt-4 border-t border-gray-800">
+                  <h3 className="text-sm font-bold text-purple-500 mb-3 flex items-center gap-2">
+                    <Shield className="w-4 h-4" /> Admin Control Center
+                  </h3>
+                  <p className="text-xs text-gray-500 mb-3">
+                    Access the full admin panel to manage users, stories, settings, and more.
+                  </p>
+                  <button
+                    onClick={() => {
+                      setShowSettings(false);
+                      setShowAdminPanel(true);
+                    }}
+                    className="w-full py-3 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-all"
+                  >
+                    <Shield className="w-5 h-5" />
+                    Open Admin Panel
+                  </button>
+                </div>
+              )}
+
               <button
                 onClick={saveSettings}
                 className="w-full py-2 bg-amber-600 hover:bg-amber-500 text-gray-950 font-bold rounded"
@@ -5394,6 +5420,14 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
             </div>
           </div>
         </div>
+      )}
+
+      {/* Admin Panel */}
+      {showAdminPanel && (
+        <AdminPanel
+          onClose={() => setShowAdminPanel(false)}
+          authUser={authUser}
+        />
       )}
 
       {/* Writers Room Modal */}
