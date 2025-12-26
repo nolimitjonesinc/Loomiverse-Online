@@ -15,6 +15,8 @@ class CloudStorageManager {
     this.isSyncing = false;
     this.isOnline = navigator.onLine;
     this.user = null;
+    this.authReady = false;
+    this.authPromise = null;
 
     // Listen for online/offline
     window.addEventListener('online', () => {
@@ -25,23 +27,35 @@ class CloudStorageManager {
       this.isOnline = false;
     });
 
-    // Check auth state on init
-    this.initAuth();
+    // Check auth state on init - store the promise so we can wait for it
+    this.authPromise = this.initAuth();
   }
 
   async initAuth() {
-    this.user = await getCurrentUser();
+    try {
+      this.user = await getCurrentUser();
+      console.log('[Cloud] Initial auth check:', this.user ? this.user.email : 'not signed in');
+    } catch (e) {
+      console.error('[Cloud] Auth check failed:', e);
+    }
+    this.authReady = true;
 
     // Listen for auth changes
     supabase.auth.onAuthStateChange((event, session) => {
       this.user = session?.user || null;
+      console.log('[Cloud] Auth state changed:', event, this.user?.email || 'signed out');
       if (this.user) {
-        console.log('[Cloud] User signed in:', this.user.email);
-        // Note: Don't auto-sync here - let the app handle sync direction
-        // On signup: app calls syncAllFromLocal (push local to cloud)
-        // On signin: app calls syncAllToLocal (pull cloud to local)
+        // Process any queued syncs now that we have a user
+        this.processSyncQueue();
       }
     });
+  }
+
+  // Wait for auth to be ready before checking
+  async ensureAuthReady() {
+    if (!this.authReady && this.authPromise) {
+      await this.authPromise;
+    }
   }
 
   // Check if cloud sync is available
@@ -54,8 +68,11 @@ class CloudStorageManager {
   // ============================================
 
   async saveStory(localId, data) {
+    // Wait for auth to be ready before checking
+    await this.ensureAuthReady();
+
     if (!this.canSync()) {
-      console.log('[Cloud] Cannot sync - online:', this.isOnline, 'user:', !!this.user);
+      console.log('[Cloud] Cannot sync - online:', this.isOnline, 'user:', !!this.user, 'authReady:', this.authReady);
       this.queueSync('story', 'upsert', { localId, data });
       return null;
     }
