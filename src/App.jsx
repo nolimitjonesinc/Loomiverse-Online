@@ -12,6 +12,15 @@ import { AI_AUTHORS, getAuthorById, getBestAuthorForGenre, buildAuthorPrompt, bu
 import { supabase } from './lib/supabase.js';
 import { cloudStorage } from './lib/cloudStorage.js';
 
+// Import Live Adventure Engine
+import {
+  createLiveAdventureEngine,
+  createAIProvider,
+  TENSION_LEVELS,
+  EMOTIONAL_BEATS
+} from './lib/liveAdventure/index.js';
+import { AdventureScreen } from './components/LiveAdventure/index.js';
+
 // ============================================
 // SECTION 1: CHARACTER GENERATION DATA
 // Ported from seed_generator_v2.py
@@ -2366,6 +2375,10 @@ export default function Loomiverse() {
   const [expandedCharacter, setExpandedCharacter] = useState(null);
   const [characterFilter, setCharacterFilter] = useState('all'); // 'all', 'user', 'story'
 
+  // Story Mode Selection
+  const [showModeSelection, setShowModeSelection] = useState(false);
+  const [pendingGenre, setPendingGenre] = useState(null); // Genre waiting for mode selection
+
   // User profile
   const [userProfile, setUserProfile] = useState(null);
 
@@ -2483,6 +2496,12 @@ export default function Loomiverse() {
   const [collabGenerating, setCollabGenerating] = useState(false); // AI generating chapter
   const collabChatEndRef = useRef(null);
   const collabVoteTimerRef = useRef(null);
+
+  // Live Adventure Mode State
+  const [liveAdventureState, setLiveAdventureState] = useState(null);
+  const [liveAdventureOutputs, setLiveAdventureOutputs] = useState([]);
+  const [liveAdventureEngine, setLiveAdventureEngine] = useState(null);
+  const [liveAdventureGenerating, setLiveAdventureGenerating] = useState(false);
 
   // Initialize
   useEffect(() => {
@@ -3263,8 +3282,57 @@ This is casual chat, not an interview. Be real.`;
     setScreen('genre'); // Go to genre selection, story will use this character's perspective
   };
 
-  // When genre is selected, start story generation immediately (original flow)
+  // When genre is selected, show mode selection
   const selectGenre = async (genre) => {
+    setPendingGenre(genre);
+    setShowModeSelection(true);
+  };
+
+  // Start Live Adventure Mode
+  const startLiveAdventureMode = async () => {
+    if (!pendingGenre) return;
+    const genre = pendingGenre;
+    setShowModeSelection(false);
+    setPendingGenre(null);
+    setSelectedGenre(genre);
+    setLoading(true);
+    setLoadingText('Preparing your Live Adventure...');
+
+    const genreData = genres[genre];
+
+    try {
+      // Generate premise for Live Adventure
+      const premise = await generatePremise(genre, selectedAIAuthors);
+      const bible = new StoryBible(premise.title, genreData.name, premise.logline);
+
+      // Add characters from premise
+      if (premise.characters) {
+        premise.characters.forEach(char => {
+          bible.addCharacter(char.name, char.role, char.traits || []);
+        });
+      }
+
+      // Set the setting
+      if (premise.setting) {
+        bible.setting = premise.setting;
+      }
+
+      setLoading(false);
+      await startLiveAdventure(bible);
+
+    } catch (error) {
+      console.error('[LiveAdventure] Setup error:', error);
+      setLoading(false);
+      alert('Failed to start Live Adventure: ' + error.message);
+    }
+  };
+
+  // Start Classic Story Mode (original flow)
+  const startClassicMode = async () => {
+    if (!pendingGenre) return;
+    const genre = pendingGenre;
+    setShowModeSelection(false);
+    setPendingGenre(null);
     setSelectedGenre(genre);
     setLoading(true);
 
@@ -4639,6 +4707,90 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
     }
   };
 
+  // ============================================
+  // LIVE ADVENTURE MODE FUNCTIONS
+  // ============================================
+
+  // Start a Live Adventure from a story bible
+  const startLiveAdventure = async (bible) => {
+    try {
+      setLiveAdventureGenerating(true);
+
+      // Create AI provider with available keys
+      const aiProvider = createAIProvider({
+        openaiKey: openaiKey || storage.getApiKey('openai'),
+        anthropicKey: anthropicKey || storage.getApiKey('anthropic'),
+        preferredProvider: aiProvider === 'anthropic' ? 'anthropic' : 'openai'
+      });
+
+      // Create the engine
+      const engine = createLiveAdventureEngine(aiProvider);
+      setLiveAdventureEngine(engine);
+
+      // Start adventure with story bible
+      const readerName = userProfile?.displayName || 'You';
+      const initialState = await engine.startAdventure(bible, readerName);
+
+      // Generate opening
+      const { state: stateAfterOpening, outputs } = await engine.generateOpening(initialState);
+
+      setLiveAdventureState(stateAfterOpening);
+      setLiveAdventureOutputs(outputs);
+      setScreen('live-adventure');
+
+    } catch (error) {
+      console.error('[LiveAdventure] Start error:', error);
+      alert('Failed to start Live Adventure: ' + error.message);
+    } finally {
+      setLiveAdventureGenerating(false);
+    }
+  };
+
+  // Handle reader input in Live Adventure
+  const handleLiveAdventureInput = async (input) => {
+    if (!liveAdventureEngine || !liveAdventureState || liveAdventureGenerating) return;
+
+    try {
+      setLiveAdventureGenerating(true);
+
+      // Add reader's message to outputs immediately
+      setLiveAdventureOutputs(prev => [...prev, {
+        speaker: 'reader',
+        content: input
+      }]);
+
+      // Process input through engine
+      const { state, outputs } = await liveAdventureEngine.processReaderInput(
+        liveAdventureState,
+        input
+      );
+
+      // Update state and add new outputs
+      setLiveAdventureState(state);
+      setLiveAdventureOutputs(prev => [...prev, ...outputs]);
+
+    } catch (error) {
+      console.error('[LiveAdventure] Input error:', error);
+      // Add error message
+      setLiveAdventureOutputs(prev => [...prev, {
+        speaker: 'narrator',
+        content: '*The story pauses momentarily...*',
+        type: 'breath'
+      }]);
+    } finally {
+      setLiveAdventureGenerating(false);
+    }
+  };
+
+  // Exit Live Adventure
+  const exitLiveAdventure = () => {
+    // TODO: Save adventure state
+    setLiveAdventureState(null);
+    setLiveAdventureOutputs([]);
+    setLiveAdventureEngine(null);
+    setScreen('landing');
+  };
+
   // Load story from storage
   const loadStory = (id) => {
     const data = storage.loadStory(id);
@@ -4971,39 +5123,44 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
             </div>
 
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">Primary AI Provider</label>
-                <select
-                  value={primaryProvider}
-                  onChange={(e) => setPrimaryProvider(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-gray-100"
-                >
-                  <option value="openai">OpenAI GPT-4.1</option>
-                  <option value="anthropic">Anthropic Claude</option>
-                </select>
-              </div>
+              {/* TODO: Uncomment for future credits-based monetization / BYOK option */}
+              {false && (
+                <>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">Primary AI Provider</label>
+                    <select
+                      value={primaryProvider}
+                      onChange={(e) => setPrimaryProvider(e.target.value)}
+                      className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-gray-100"
+                    >
+                      <option value="openai">OpenAI GPT-4.1</option>
+                      <option value="anthropic">Anthropic Claude</option>
+                    </select>
+                  </div>
 
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">OpenAI API Key</label>
-                <input
-                  type="password"
-                  value={openaiKey}
-                  onChange={(e) => setOpenaiKey(e.target.value)}
-                  placeholder="sk-..."
-                  className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-gray-100"
-                />
-              </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">OpenAI API Key</label>
+                    <input
+                      type="password"
+                      value={openaiKey}
+                      onChange={(e) => setOpenaiKey(e.target.value)}
+                      placeholder="sk-..."
+                      className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-gray-100"
+                    />
+                  </div>
 
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">Anthropic API Key</label>
-                <input
-                  type="password"
-                  value={anthropicKey}
-                  onChange={(e) => setAnthropicKey(e.target.value)}
-                  placeholder="sk-ant-..."
-                  className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-gray-100"
-                />
-              </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">Anthropic API Key</label>
+                    <input
+                      type="password"
+                      value={anthropicKey}
+                      onChange={(e) => setAnthropicKey(e.target.value)}
+                      placeholder="sk-ant-..."
+                      className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-gray-100"
+                    />
+                  </div>
+                </>
+              )}
 
               {/* Library Theme Selector */}
               <div>
@@ -5199,6 +5356,87 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
       )}
 
       {/* Writers Room Modal */}
+      {/* STORY MODE SELECTION MODAL */}
+      {showModeSelection && pendingGenre && (
+        <div className="fixed inset-0 z-50 bg-gray-950/95 flex items-center justify-center p-4">
+          <div className="bg-gray-900 border border-amber-800/50 rounded-2xl max-w-2xl w-full overflow-hidden">
+            {/* Header */}
+            <div className="p-6 border-b border-gray-800 text-center">
+              <h2 className="text-2xl font-bold text-white mb-2">Choose Your Experience</h2>
+              <p className="text-gray-500">
+                {genres[pendingGenre]?.name || pendingGenre} Story
+              </p>
+            </div>
+
+            {/* Mode Options */}
+            <div className="p-6 grid gap-4">
+              {/* Classic Mode */}
+              <button
+                onClick={startClassicMode}
+                className="w-full p-6 bg-gray-800/50 hover:bg-gray-800 border border-gray-700 hover:border-amber-600/50 rounded-xl text-left transition-all group"
+              >
+                <div className="flex items-start gap-4">
+                  <div className="w-12 h-12 bg-amber-600/20 rounded-xl flex items-center justify-center flex-shrink-0 group-hover:bg-amber-600/30">
+                    <BookOpen className="w-6 h-6 text-amber-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-white mb-1">Classic Mode</h3>
+                    <p className="text-sm text-gray-400">
+                      Read immersive chapters with 3 choices at each decision point.
+                      A traditional choose-your-own-adventure experience with AI-generated prose.
+                    </p>
+                    <div className="flex items-center gap-4 mt-3 text-xs text-gray-500">
+                      <span>600-900 word chapters</span>
+                      <span>•</span>
+                      <span>3 choices per chapter</span>
+                    </div>
+                  </div>
+                </div>
+              </button>
+
+              {/* Live Adventure Mode */}
+              <button
+                onClick={startLiveAdventureMode}
+                className="w-full p-6 bg-gradient-to-br from-emerald-900/30 to-teal-900/30 hover:from-emerald-900/50 hover:to-teal-900/50 border border-emerald-700/50 hover:border-emerald-500/50 rounded-xl text-left transition-all group"
+              >
+                <div className="flex items-start gap-4">
+                  <div className="w-12 h-12 bg-emerald-600/20 rounded-xl flex items-center justify-center flex-shrink-0 group-hover:bg-emerald-600/30">
+                    <MessageCircle className="w-6 h-6 text-emerald-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <h3 className="text-lg font-bold text-white">Live Adventure</h3>
+                      <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs rounded-full">NEW</span>
+                    </div>
+                    <p className="text-sm text-gray-400">
+                      Converse directly with story characters. Type naturally, make decisions through dialogue.
+                      An immersive chat-based experience where YOU are the protagonist.
+                    </p>
+                    <div className="flex items-center gap-4 mt-3 text-xs text-gray-500">
+                      <span>Real-time conversation</span>
+                      <span>•</span>
+                      <span>Natural responses</span>
+                      <span>•</span>
+                      <span>Character relationships</span>
+                    </div>
+                  </div>
+                </div>
+              </button>
+            </div>
+
+            {/* Cancel */}
+            <div className="p-4 border-t border-gray-800 text-center">
+              <button
+                onClick={() => { setShowModeSelection(false); setPendingGenre(null); }}
+                className="text-sm text-gray-500 hover:text-gray-300 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showWritersRoom && (
         <div className="fixed inset-0 z-50 bg-gray-950/95 flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-gray-900 border border-purple-800/50 rounded-xl max-w-3xl w-full my-8">
@@ -6881,6 +7119,18 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
             </div>
           </div>
         </div>
+      )}
+
+      {/* LIVE ADVENTURE SCREEN */}
+      {screen === 'live-adventure' && liveAdventureState && (
+        <AdventureScreen
+          adventureState={liveAdventureState}
+          storyOutputs={liveAdventureOutputs}
+          onSendMessage={handleLiveAdventureInput}
+          onExit={exitLiveAdventure}
+          isGenerating={liveAdventureGenerating}
+          readerName={userProfile?.displayName || 'You'}
+        />
       )}
 
       {/* PROFILE SCREEN */}
