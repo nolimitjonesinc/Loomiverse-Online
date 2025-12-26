@@ -17,6 +17,37 @@ export * from './CharacterAgent.js';
 export * from './NarratorAgent.js';
 export * from './ResponseInterpreter.js';
 
+// Psychological Depth modules
+export * from './ReaderProfile.js';
+export * from './AttachmentEngine.js';
+export * from './EmotionalResonance.js';
+export * from './MemorySystem.js';
+// Export TensionManager selectively to avoid TENSION_LEVELS conflict
+export {
+  createTensionManager,
+  recordTensionEvent,
+  needsBreathMoment,
+  recordBreathMoment,
+  getPacingRecommendation,
+  getTensionContext,
+  setTensionGoal,
+  getTensionGoalProgress,
+  clearTensionGoal,
+  getAverageTension,
+  getTensionVolatility,
+  isInSpike,
+  isInLull,
+  adaptToReaderTolerance,
+  resetForNewScene,
+  serializeTensionManager,
+  deserializeTensionManager,
+  PACING_MODES,
+  TENSION_EVENTS,
+  GENRE_PROFILES
+} from './TensionManager.js';
+// Also export as alias for direct access
+export { TENSION_LEVELS as TM_TENSION_LEVELS } from './TensionManager.js';
+
 // Import for internal use
 import {
   createAdventureState,
@@ -406,13 +437,51 @@ export function createLiveAdventureEngine(aiProvider) {
   };
 }
 
+// Import psychological depth modules for default export
+import { createReaderProfile, COMFORT_LEVELS, CONTENT_ELEMENTS } from './ReaderProfile.js';
+import { createAttachmentEngine, BOND_TYPES, MILESTONES } from './AttachmentEngine.js';
+import { createResonanceEngine, EMOTIONAL_TONES, TECHNIQUES, INTENSITY } from './EmotionalResonance.js';
+import { createMemorySystem, MEMORY_TYPES, SALIENCE, MEMORY_VALENCE } from './MemorySystem.js';
+import {
+  createTensionManager,
+  TENSION_LEVELS as TM_TENSION_LEVELS,
+  PACING_MODES,
+  TENSION_EVENTS,
+  GENRE_PROFILES
+} from './TensionManager.js';
+
 // Default export
 export default {
+  // Core engine
   createLiveAdventureEngine,
   createAIProvider,
+
+  // Adventure state
   TENSION_LEVELS,
   EMOTIONAL_BEATS,
   DIRECTION_TYPES,
   INPUT_TYPES,
-  NARRATION_TYPES
+  NARRATION_TYPES,
+
+  // Psychological depth
+  createReaderProfile,
+  createAttachmentEngine,
+  createResonanceEngine,
+  createMemorySystem,
+  createTensionManager,
+
+  // Constants
+  COMFORT_LEVELS,
+  CONTENT_ELEMENTS,
+  BOND_TYPES,
+  MILESTONES,
+  EMOTIONAL_TONES,
+  TECHNIQUES,
+  INTENSITY,
+  MEMORY_TYPES,
+  SALIENCE,
+  MEMORY_VALENCE,
+  PACING_MODES,
+  TENSION_EVENTS,
+  GENRE_PROFILES
 };
