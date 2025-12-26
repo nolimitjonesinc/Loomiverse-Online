@@ -92,7 +92,7 @@ class CloudStorageManager {
     } catch (error) {
       console.error('[Cloud] Save story failed:', error.message, error);
       this.queueSync('story', 'upsert', { localId, data });
-      throw error; // Re-throw so caller can see the error
+      return null; // Don't throw - let app continue working
     }
   }
 
