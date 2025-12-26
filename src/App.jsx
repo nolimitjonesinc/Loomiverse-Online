@@ -3737,6 +3737,7 @@ Output ONLY valid JSON in this format:
       setUserProfile(storage.getUserProfile());
     } catch (error) {
       console.error('Error generating chapter:', error);
+      alert('Failed to generate chapter: ' + error.message + '\n\nMake sure you have an API key set in Settings.');
     }
 
     setLoading(false);
