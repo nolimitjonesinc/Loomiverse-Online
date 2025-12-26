@@ -21,6 +21,7 @@ import {
 } from './lib/liveAdventure/index.js';
 import { AdventureScreen } from './components/LiveAdventure/index.js';
 import AdminPanel from './components/AdminPanel.jsx';
+import { logError, withRetry, submitBugReport, ErrorTypes } from './lib/errorLogger.js';
 
 // ============================================
 // SECTION 1: CHARACTER GENERATION DATA
@@ -2479,6 +2480,12 @@ export default function Loomiverse() {
   // Admin Panel
   const [showAdminPanel, setShowAdminPanel] = useState(false);
 
+  // Error Modal State - for graceful error handling
+  const [errorModal, setErrorModal] = useState(null); // { title, message, onRetry, context }
+  const [showReportIssue, setShowReportIssue] = useState(false);
+  const [reportIssueText, setReportIssueText] = useState('');
+  const [reportSubmitting, setReportSubmitting] = useState(false);
+
   // Reading Mode: 'choices' (default), 'interactive' (player types action), 'narrator' (player guides story)
   const [readingMode, setReadingMode] = useState('choices');
   const [interactiveInput, setInteractiveInput] = useState('');
@@ -2567,7 +2574,7 @@ export default function Loomiverse() {
           await cloudStorage.syncAllToLocal();
           setSavedStories(storage.listStories());
           const chars = localStorage.getItem('loomiverse_characters');
-          if (chars) setAllCharacters(JSON.parse(chars));
+          if (chars) setCharacters(JSON.parse(chars));
           console.log('[Auth] Auto-sync from cloud complete');
         } catch (e) {
           console.log('[Auth] Auto-sync skipped:', e.message);
@@ -2633,7 +2640,7 @@ export default function Loomiverse() {
         const chars = localStorage.getItem('loomiverse_characters');
         if (chars) {
           try {
-            setAllCharacters(JSON.parse(chars));
+            setCharacters(JSON.parse(chars));
           } catch (e) {}
         }
         console.log('[Sync] Sync complete - pushed and pulled');
@@ -3030,18 +3037,21 @@ Output ONLY valid JSON:
       }
     }
 
-    // Fallback if no API available
-    const fallbackPremises = {
-      fantasy: { title: 'The Untold Kingdom', logline: 'A wanderer discovers they alone can hear the dying words of an ancient god, words that could reshape the world or destroy it.' },
-      scifi: { title: 'Echo Protocol', logline: 'When your digital backup wakes up before you die, you must hunt down the copy of yourself that\'s already living your life.' },
-      mystery: { title: 'The Last Confession', logline: 'A priest receives a deathbed confession that implicates someone still very much alive—and very dangerous.' },
-      romance: { title: 'Second First Impressions', logline: 'After a head injury erases six months of memories, she must decide whether to fall for her fiancé all over again—or trust the doubts she can\'t remember having.' },
-      horror: { title: 'The Watching Hours', logline: 'Every night at 3:33 AM, something in the house moves—and it\'s been getting closer to the bedroom door.' },
-      literary: { title: 'The Space Between Us', logline: 'Two estranged siblings return home to sort their late mother\'s possessions and discover a secret that rewrites their entire childhood.' }
-    };
-    const fallback = fallbackPremises[genre] || fallbackPremises.literary;
-    fallback.author = author; // Include author even in fallback
-    return fallback;
+    // No fallback - log error and throw for UI to handle
+    const error = new Error('Story generation temporarily unavailable. Our AI services are experiencing issues.');
+    await logError(
+      ErrorTypes.AI_GENERATION,
+      'All AI providers failed for premise generation',
+      {
+        genre,
+        genreName: genreData?.name,
+        providersAttempted: providers,
+        hasAIAuthors,
+        author: author?.name || null
+      },
+      error
+    );
+    throw error;
   };
 
   // Generate story outline (ported from iOS app)
@@ -3424,7 +3434,15 @@ This is casual chat, not an interview. Be real.`;
     } catch (error) {
       console.error('[LiveAdventure] Setup error:', error);
       setLoading(false);
-      alert('Failed to start Live Adventure: ' + error.message);
+      setErrorModal({
+        title: 'Story Generation Unavailable',
+        message: error.message || 'Our AI storytelling service is temporarily unavailable. Please try again in a moment.',
+        onRetry: () => {
+          setErrorModal(null);
+          startLiveAdventureMode();
+        },
+        context: { mode: 'live_adventure', genre }
+      });
     }
   };
 
@@ -3589,11 +3607,17 @@ This is casual chat, not an interview. Be real.`;
       setScreen('setup');
     } catch (error) {
       console.error('Story setup failed:', error);
-      setLoadingText('We hit a snag. Please try again.');
-      setTimeout(() => {
-        setLoading(false);
-        setScreen('genre');
-      }, 1500);
+      setLoading(false);
+      setErrorModal({
+        title: 'Story Generation Unavailable',
+        message: error.message || 'Our AI storytelling service is temporarily unavailable. Please try again in a moment.',
+        onRetry: () => {
+          setErrorModal(null);
+          setPendingGenre(genre);
+          startClassicMode();
+        },
+        context: { mode: 'classic', genre }
+      });
     }
   };
 
@@ -5411,15 +5435,36 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
                   <p className="text-xs text-gray-500 mb-3">
                     Signed in as {authUser.user_metadata?.display_name || authUser.email}
                   </p>
+                  {/* Debug Info - shows sync status */}
+                  <div className="bg-gray-900 rounded p-2 mb-3 text-xs font-mono">
+                    <div className="text-gray-400">User ID: <span className="text-amber-400">{authUser.id?.substring(0, 8)}...</span></div>
+                    <div className="text-gray-400">Local Stories: <span className="text-green-400">{savedStories.length}</span></div>
+                    <button
+                      onClick={async () => {
+                        try {
+                          const cloudStories = await cloudStorage.listStories(true);
+                          alert(`Cloud has ${cloudStories.length} stories:\n\n${cloudStories.map(s => `• ${s.title}`).join('\n')}`);
+                        } catch (e) {
+                          alert('Could not check cloud: ' + e.message);
+                        }
+                      }}
+                      className="text-blue-400 underline mt-1"
+                    >
+                      Check cloud story count
+                    </button>
+                  </div>
                   <div className="flex gap-2">
                     <button
                       onClick={async () => {
                         try {
+                          const cloudStories = await cloudStorage.listStories(true);
+                          const beforeCount = savedStories.length;
                           await cloudStorage.syncAllToLocal();
                           setSavedStories(storage.listStories());
                           const chars = localStorage.getItem('loomiverse_characters');
                           if (chars) setCharacters(JSON.parse(chars));
-                          alert('Synced from cloud successfully!');
+                          const afterCount = storage.listStories().length;
+                          alert(`Synced from cloud!\n\nCloud stories: ${cloudStories.length}\nBefore: ${beforeCount} local\nAfter: ${afterCount} local`);
                         } catch (e) {
                           alert('Sync failed: ' + e.message);
                         }
@@ -5484,6 +5529,123 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
           onClose={() => setShowAdminPanel(false)}
           authUser={authUser}
         />
+      )}
+
+      {/* Error Modal - Graceful error handling with retry and report options */}
+      {errorModal && (
+        <div className="fixed inset-0 z-[100] bg-gray-950/95 flex items-center justify-center p-4">
+          <div className="bg-gray-900 border border-red-500/30 rounded-xl max-w-md w-full p-6 animate-cascade">
+            {/* Error Icon */}
+            <div className="flex justify-center mb-4">
+              <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center">
+                <span className="text-3xl">⚠️</span>
+              </div>
+            </div>
+
+            {/* Title */}
+            <h3 className="text-xl font-bold text-center text-red-400 mb-2">
+              {errorModal.title || 'Something Went Wrong'}
+            </h3>
+
+            {/* Message */}
+            <p className="text-gray-400 text-center mb-6">
+              {errorModal.message || 'An unexpected error occurred. Please try again.'}
+            </p>
+
+            {/* Actions */}
+            <div className="space-y-3">
+              {/* Retry Button */}
+              {errorModal.onRetry && (
+                <button
+                  onClick={errorModal.onRetry}
+                  className="w-full py-3 bg-amber-600 hover:bg-amber-500 text-gray-950 font-bold rounded-lg flex items-center justify-center gap-2 transition-all"
+                >
+                  <Play className="w-5 h-5" /> Try Again
+                </button>
+              )}
+
+              {/* Report Issue Button */}
+              <button
+                onClick={() => {
+                  setShowReportIssue(true);
+                  setReportIssueText('');
+                }}
+                className="w-full py-3 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg flex items-center justify-center gap-2 transition-all"
+              >
+                <MessageCircle className="w-5 h-5" /> Report Issue
+              </button>
+
+              {/* Dismiss Button */}
+              <button
+                onClick={() => {
+                  setErrorModal(null);
+                  setScreen('genre');
+                }}
+                className="w-full py-2 text-gray-500 hover:text-gray-300 text-sm transition-all"
+              >
+                Go Back to Genre Selection
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Report Issue Modal */}
+      {showReportIssue && (
+        <div className="fixed inset-0 z-[110] bg-gray-950/95 flex items-center justify-center p-4">
+          <div className="bg-gray-900 border border-gray-800 rounded-xl max-w-md w-full p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-amber-500">Report Issue</h3>
+              <button
+                onClick={() => setShowReportIssue(false)}
+                className="text-gray-500 hover:text-gray-300"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-sm text-gray-400 mb-4">
+              Help us improve! Describe what happened and we'll look into it.
+            </p>
+
+            <textarea
+              value={reportIssueText}
+              onChange={(e) => setReportIssueText(e.target.value)}
+              placeholder="What were you trying to do? What happened instead?"
+              className="w-full h-32 bg-gray-800 border border-gray-700 rounded-lg p-3 text-white placeholder-gray-500 focus:border-amber-500 focus:outline-none resize-none mb-4"
+            />
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowReportIssue(false)}
+                className="flex-1 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  if (!reportIssueText.trim()) return;
+                  setReportSubmitting(true);
+                  try {
+                    await submitBugReport(reportIssueText.trim(), 'ai_generation', errorModal?.context || {});
+                    setShowReportIssue(false);
+                    setErrorModal(null);
+                    setScreen('genre');
+                    alert('Thank you! Your report has been submitted.');
+                  } catch (e) {
+                    console.error('Failed to submit report:', e);
+                    alert('Failed to submit report. Please try again.');
+                  }
+                  setReportSubmitting(false);
+                }}
+                disabled={reportSubmitting || !reportIssueText.trim()}
+                className="flex-1 py-2 bg-amber-600 hover:bg-amber-500 disabled:bg-gray-700 disabled:text-gray-500 text-gray-950 font-bold rounded-lg flex items-center justify-center gap-2"
+              >
+                {reportSubmitting ? 'Sending...' : 'Submit Report'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Writers Room Modal */}
