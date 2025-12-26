@@ -216,6 +216,8 @@ class CloudStorageManager {
           origin: charData.origin || 'story',
           local_story_id: charData.storyId,
           story_title: charData.storyTitle
+        }, {
+          onConflict: 'user_id,name,local_story_id'
         })
         .select()
         .single();
