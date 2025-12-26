@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Save, Library, Globe, Upload, BookOpen, X, Settings, User, Sparkles, Play, Pause, Volume2, VolumeX, ChevronRight, Heart, Brain, Home, Users, Zap, Pencil, Archive, Bookmark, FolderPlus, MoreVertical, Trash2, MessageCircle, Send, Cloud, CloudOff, LogIn, LogOut, Download, Check, Square, CheckSquare } from 'lucide-react';
+import { Save, Library, Globe, Upload, BookOpen, X, Settings, User, Sparkles, Play, Pause, Volume2, VolumeX, ChevronRight, Heart, Brain, Home, Users, Zap, Pencil, Archive, Bookmark, FolderPlus, MoreVertical, Trash2, MessageCircle, Send, Cloud, CloudOff, LogIn, LogOut, Download, Check, Square, CheckSquare, Share2, Copy, Link, ExternalLink } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 
 // Import author styles from iOS app (25+ writing styles)
@@ -1934,8 +1934,28 @@ END STORY BIBLE
 // SECTION 6: AI PROVIDERS
 // ============================================
 
-// Fetch with timeout - prevents infinite hanging on mobile
+// Fetch with timeout - prevents infinite hanging on mobile (with graceful fallback)
 const fetchWithTimeout = async (url, options, timeoutMs = 30000) => {
+  // Some mobile webviews still lack AbortController support, so fall back to Promise.race
+  if (typeof AbortController === 'undefined') {
+    let timeoutId;
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error(`Request timed out after ${timeoutMs / 1000}s`)), timeoutMs);
+    });
+
+    try {
+      const response = await Promise.race([
+        fetch(url, options),
+        timeoutPromise
+      ]);
+      clearTimeout(timeoutId);
+      return response;
+    } catch (error) {
+      if (timeoutId) clearTimeout(timeoutId);
+      throw error;
+    }
+  }
+
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -2393,6 +2413,9 @@ export default function Loomiverse() {
   const [narrationAudio, setNarrationAudio] = useState(null); // For ElevenLabs audio element
   const speechSynthRef = useRef(null); // For Web Speech API utterance
 
+  // Character Portrait Generation State
+  const [generatingPortrait, setGeneratingPortrait] = useState(null); // character ID currently generating
+
   // Confirmation Modal
   const [confirmModal, setConfirmModal] = useState(null); // { title, message, onConfirm, confirmText, confirmStyle }
 
@@ -2428,6 +2451,26 @@ export default function Loomiverse() {
   // Edit Library Mode
   const [editMode, setEditMode] = useState(false);
   const [selectedStories, setSelectedStories] = useState(new Set());
+
+  // Story Sharing
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [shareData, setShareData] = useState(null); // { code, url, loading, error }
+  const [shareCopied, setShareCopied] = useState(false);
+
+  // PWA / Offline Mode
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [showOfflineBanner, setShowOfflineBanner] = useState(false);
+
+  // Collaborative Stories
+  const [showCollabModal, setShowCollabModal] = useState(false);
+  const [collabMode, setCollabMode] = useState(null); // 'create' | 'join' | null
+  const [collabSession, setCollabSession] = useState(null);
+  const [collabJoinCode, setCollabJoinCode] = useState('');
+  const [collabDisplayName, setCollabDisplayName] = useState('');
+  const [collabError, setCollabError] = useState('');
+  const [collabLoading, setCollabLoading] = useState(false);
+  const [myCollabSessions, setMyCollabSessions] = useState([]);
+  const collabUnsubscribeRef = useRef(null);
 
   // Initialize
   useEffect(() => {
@@ -2468,6 +2511,31 @@ export default function Loomiverse() {
     });
 
     return () => subscription.unsubscribe();
+  }, []);
+
+  // Online/Offline detection for PWA
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      setShowOfflineBanner(false);
+      console.log('[PWA] Back online');
+    };
+
+    const handleOffline = () => {
+      setIsOnline(false);
+      setShowOfflineBanner(true);
+      console.log('[PWA] Gone offline');
+      // Auto-hide banner after 5 seconds
+      setTimeout(() => setShowOfflineBanner(false), 5000);
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
   }, []);
 
   // Auth handlers
@@ -2917,6 +2985,26 @@ Guidelines:
     ];
   };
 
+  // Build quick fallback names if AI call fails or times out
+  const buildFallbackNames = (characters) => {
+    const fallbackPools = {
+      male: ['Marcus', 'Kael', 'Theron', 'Aldric', 'Caspian', 'Darius', 'Felix', 'Jasper', 'Orion', 'Silas', 'Viktor', 'Zephyr'],
+      female: ['Elara', 'Lyra', 'Seraphina', 'Nyla', 'Ravenna', 'Isolde', 'Celeste', 'Aurora', 'Freya', 'Sage', 'Vera', 'Wren']
+    };
+    const usedNames = new Set();
+    const fallback = {};
+
+    characters.forEach(c => {
+      const pool = c.sex === 'F' ? fallbackPools.female : fallbackPools.male;
+      const availableNames = pool.filter(n => !usedNames.has(n));
+      const name = availableNames[Math.floor(Math.random() * availableNames.length)] || c.role;
+      usedNames.add(name);
+      fallback[c.role] = name;
+    });
+
+    return fallback;
+  };
+
   // Generate MULTIPLE character names in ONE API call - much faster
   const generateCharacterNames = async (characters, genreName, storyTitle) => {
     const providers = primaryProvider === 'openai' 
@@ -2973,22 +3061,7 @@ Guidelines:
     }
 
     // Fallback - generate genre-appropriate default names
-    const fallbackNames = {
-      male: ['Marcus', 'Kael', 'Theron', 'Aldric', 'Caspian', 'Darius', 'Felix', 'Jasper', 'Orion', 'Silas', 'Viktor', 'Zephyr'],
-      female: ['Elara', 'Lyra', 'Seraphina', 'Nyla', 'Ravenna', 'Isolde', 'Celeste', 'Aurora', 'Freya', 'Sage', 'Vera', 'Wren']
-    };
-    const usedNames = new Set();
-    const fallback = {};
-
-    characters.forEach(c => {
-      const pool = c.sex === 'F' ? fallbackNames.female : fallbackNames.male;
-      const availableNames = pool.filter(n => !usedNames.has(n));
-      const name = availableNames[Math.floor(Math.random() * availableNames.length)] || c.role;
-      usedNames.add(name);
-      fallback[c.role] = name;
-    });
-
-    return fallback;
+    return buildFallbackNames(characters);
   };
 
   // Generate single character name using AI (kept for standalone use)
@@ -3182,126 +3255,151 @@ This is casual chat, not an interview. Be real.`;
 
     const genreData = genres[genre];
 
-    // Generate unique AI premise - pass selected AI authors from Writers Room
-    const premise = await generatePremise(genre, selectedAIAuthors);
-    setCurrentStory(premise);
+    try {
+      // Generate unique AI premise - pass selected AI authors from Writers Room
+      const premise = await generatePremise(genre, selectedAIAuthors);
+      setCurrentStory(premise);
 
-    const bible = new StoryBible(premise.title, genreData.name, premise.logline);
+      const bible = new StoryBible(premise.title, genreData.name, premise.logline);
 
-    // Store AI authors from Writers Room if selected
-    if (selectedAIAuthors.length > 0) {
-      bible.aiAuthors = selectedAIAuthors;
-      const authorNames = selectedAIAuthors.map(a => a.name).join(' × ');
-      bible.setAuthorStyle({ name: authorNames, description: 'AI Authors from Writers Room' });
-      console.log(`Using AI Authors from Writers Room: ${authorNames}`);
-    } else if (premise.author) {
-      // Use the author style from premise (original iOS author styles)
-      bible.setAuthorStyle(premise.author);
-      console.log(`Using author style from premise: ${premise.author.name}`);
-    }
+      // Store AI authors from Writers Room if selected
+      if (selectedAIAuthors.length > 0) {
+        bible.aiAuthors = selectedAIAuthors;
+        const authorNames = selectedAIAuthors.map(a => a.name).join(' × ');
+        bible.setAuthorStyle({ name: authorNames, description: 'AI Authors from Writers Room' });
+        console.log(`Using AI Authors from Writers Room: ${authorNames}`);
+      } else if (premise.author) {
+        // Use the author style from premise (original iOS author styles)
+        bible.setAuthorStyle(premise.author);
+        console.log(`Using author style from premise: ${premise.author.name}`);
+      }
 
-    // NEW: Set genre formula for structural guidance
-    if (genreData.formula) {
-      bible.setGenreFormula(genreData.formula);
-    }
+      // NEW: Set genre formula for structural guidance
+      if (genreData.formula) {
+        bible.setGenreFormula(genreData.formula);
+      }
 
-    // Generate story outline (API call #2) - NOW USES SAME AUTHOR for consistency!
-    setLoadingText('Architecting your story...');
-    const outline = await generateOutline(genre, premise.title, premise.logline, premise.author);
-    bible.setStoryOutline(outline);
-    console.log('Story outline generated:', outline);
+      // Generate story outline (API call #2) - NOW USES SAME AUTHOR for consistency!
+      setLoadingText('Architecting your story...');
+      const outline = await generateOutline(genre, premise.title, premise.logline, premise.author);
+      bible.setStoryOutline(outline);
+      console.log('Story outline generated:', outline);
 
-    // Collect all characters that need names
-    const charactersToName = [];
-    let protagonistSeed = null;
-    let protagonistSimResult = null;
+      // Collect all characters that need names
+      const charactersToName = [];
+      let protagonistSeed = null;
+      let protagonistSimResult = null;
 
-    // Generate protagonist seed if none selected
-    if (selectedCharacter) {
-      bible.setProtagonist(selectedCharacter);
-    } else {
-      setLoadingText('Creating your protagonist...');
+      // Generate protagonist seed if none selected
+      if (selectedCharacter) {
+        bible.setProtagonist(selectedCharacter);
+      } else {
+        setLoadingText('Creating your protagonist...');
 
-      // Generate protagonist with genre-appropriate era (now uses genre's eras if defined)
-      const eras = genreData.eras || Object.keys(ERAS);
-      const era = eras[Math.floor(Math.random() * eras.length)];
+        // Generate protagonist with genre-appropriate era (now uses genre's eras if defined)
+        const eras = genreData.eras || Object.keys(ERAS);
+        const era = eras[Math.floor(Math.random() * eras.length)];
+        
+        const generator = new CharacterGenerator();
+        protagonistSeed = generator.generateSeed(era);
+        
+        // Run simulation (local, fast)
+        setLoadingText('Simulating childhood experiences...');
+        const simulator = new EventSimulator(protagonistSeed);
+        protagonistSimResult = simulator.simulateChildhood();
+        
+        // Add to naming queue
+        charactersToName.push({
+          role: 'Protagonist',
+          ethnicity: protagonistSeed.cultural_identity?.ethnicity || 'unspecified',
+          sex: protagonistSeed.biology?.sex || 'M',
+          era
+        });
+      }
       
-      const generator = new CharacterGenerator();
-      protagonistSeed = generator.generateSeed(era);
+      // Generate 2-3 supporting NPCs seeds (local, fast)
+      setLoadingText('Populating the world...');
+      const supportingRoles = ['Mentor', 'Ally', 'Rival', 'Love Interest', 'Guardian', 'Trickster'];
+      const numSupporting = 2 + Math.floor(Math.random() * 2);
+      const selectedRoles = [];
+      const npcSeeds = [];
       
-      // Run simulation (local, fast)
-      setLoadingText('Simulating childhood experiences...');
-      const simulator = new EventSimulator(protagonistSeed);
-      protagonistSimResult = simulator.simulateChildhood();
+      for (let i = 0; i < numSupporting; i++) {
+        const availableRoles = supportingRoles.filter(r => !selectedRoles.includes(r));
+        const role = availableRoles[Math.floor(Math.random() * availableRoles.length)];
+        selectedRoles.push(role);
+        
+        const generator = new CharacterGenerator();
+        const npcSeed = generator.generateSeed();
+        npcSeeds.push({ seed: npcSeed, role });
+        
+        // Add to naming queue
+        charactersToName.push({
+          role,
+          ethnicity: npcSeed.cultural_identity?.ethnicity || 'unspecified',
+          sex: npcSeed.biology?.sex || (Math.random() > 0.5 ? 'M' : 'F'),
+          era: npcSeed.world?.era || '2010s'
+        });
+      }
       
-      // Add to naming queue
-      charactersToName.push({
-        role: 'Protagonist',
-        ethnicity: protagonistSeed.cultural_identity?.ethnicity || 'unspecified',
-        sex: protagonistSeed.biology?.sex || 'M',
-        era
-      });
+      // Generate ALL names in ONE API call (#2)
+      setLoadingText('Naming your characters...');
+      let names = null;
+      try {
+        let namingTimeout;
+        const namingPromise = generateCharacterNames(charactersToName, genreData.name, premise.title);
+        const timeoutPromise = new Promise((_, reject) => {
+          namingTimeout = setTimeout(() => reject(new Error('Character naming timed out')), 15000);
+        });
+        names = await Promise.race([namingPromise, timeoutPromise]);
+        if (namingTimeout) clearTimeout(namingTimeout);
+      } catch (namingError) {
+        console.warn('Character naming fell back to local defaults:', namingError);
+        names = buildFallbackNames(charactersToName);
+      }
+
+      if (!names) {
+        names = buildFallbackNames(charactersToName);
+      }
+      
+      // Now apply names to characters
+      if (protagonistSeed) {
+        const protagonist = {
+          ...protagonistSeed,
+          id: `char_${Date.now()}`,
+          name: names['Protagonist'] || 'Unknown',
+          simulated: true,
+          simulation_results: protagonistSimResult,
+          origin: 'story',
+          originStoryId: bible.storyId,
+          originStoryTitle: premise.title,
+          role: 'Protagonist'
+        };
+        
+        storage.saveCharacter(protagonist, 'story', bible.storyId, premise.title);
+        setCharacters(storage.getCharacters());
+        bible.setProtagonist(protagonist);
+      }
+      
+      // Add NPCs with their names
+      for (const { seed, role } of npcSeeds) {
+        bible.addCharacter(names[role] || role, role, [
+          seed.attachment?.attachment_style || 'unknown',
+          seed.atmospheric_conditions?.emotional_climate || 'neutral'
+        ], {}, seed);
+      }
+      
+      setStoryBible(bible);
+      setLoading(false);
+      setScreen('setup');
+    } catch (error) {
+      console.error('Story setup failed:', error);
+      setLoadingText('We hit a snag. Please try again.');
+      setTimeout(() => {
+        setLoading(false);
+        setScreen('genre');
+      }, 1500);
     }
-    
-    // Generate 2-3 supporting NPCs seeds (local, fast)
-    setLoadingText('Populating the world...');
-    const supportingRoles = ['Mentor', 'Ally', 'Rival', 'Love Interest', 'Guardian', 'Trickster'];
-    const numSupporting = 2 + Math.floor(Math.random() * 2);
-    const selectedRoles = [];
-    const npcSeeds = [];
-    
-    for (let i = 0; i < numSupporting; i++) {
-      const availableRoles = supportingRoles.filter(r => !selectedRoles.includes(r));
-      const role = availableRoles[Math.floor(Math.random() * availableRoles.length)];
-      selectedRoles.push(role);
-      
-      const generator = new CharacterGenerator();
-      const npcSeed = generator.generateSeed();
-      npcSeeds.push({ seed: npcSeed, role });
-      
-      // Add to naming queue
-      charactersToName.push({
-        role,
-        ethnicity: npcSeed.cultural_identity?.ethnicity || 'unspecified',
-        sex: npcSeed.biology?.sex || (Math.random() > 0.5 ? 'M' : 'F'),
-        era: npcSeed.world?.era || '2010s'
-      });
-    }
-    
-    // Generate ALL names in ONE API call (#2)
-    setLoadingText('Naming your characters...');
-    const names = await generateCharacterNames(charactersToName, genreData.name, premise.title);
-    
-    // Now apply names to characters
-    if (protagonistSeed) {
-      const protagonist = {
-        ...protagonistSeed,
-        id: `char_${Date.now()}`,
-        name: names['Protagonist'] || 'Unknown',
-        simulated: true,
-        simulation_results: protagonistSimResult,
-        origin: 'story',
-        originStoryId: bible.storyId,
-        originStoryTitle: premise.title,
-        role: 'Protagonist'
-      };
-      
-      storage.saveCharacter(protagonist, 'story', bible.storyId, premise.title);
-      setCharacters(storage.getCharacters());
-      bible.setProtagonist(protagonist);
-    }
-    
-    // Add NPCs with their names
-    for (const { seed, role } of npcSeeds) {
-      bible.addCharacter(names[role] || role, role, [
-        seed.attachment?.attachment_style || 'unknown',
-        seed.atmospheric_conditions?.emotional_climate || 'neutral'
-      ], {}, seed);
-    }
-    
-    setStoryBible(bible);
-    setLoading(false);
-    setScreen('setup');
   };
 
   // Generate chapter via AI
@@ -3861,6 +3959,424 @@ IMPORTANT:
     }
   };
 
+  // ============================================
+  // CHARACTER PORTRAIT GENERATION (DALL-E 3)
+  // ============================================
+
+  /**
+   * Generate a portrait for a character using DALL-E 3
+   * @param {Object} character - The character object with psychology/traits
+   * @param {string} genre - The story genre for style context
+   * @returns {Promise<string|null>} The portrait URL or null if failed
+   */
+  const generateCharacterPortrait = async (character, genre = 'fantasy') => {
+    if (!character || !character.id) {
+      console.error('[Portrait] No character provided');
+      return null;
+    }
+
+    console.log(`[Portrait] Generating portrait for ${character.name}...`);
+    setGeneratingPortrait(character.id);
+
+    try {
+      // Build a detailed prompt from character psychology
+      const traits = [];
+
+      // Physical description from psychology layers
+      if (character.psychology) {
+        const psych = character.psychology;
+        if (psych.core_self?.temperament) traits.push(psych.core_self.temperament);
+        if (psych.core_self?.dominant_emotion) traits.push(`${psych.core_self.dominant_emotion} expression`);
+        if (psych.presentation?.body_language) traits.push(psych.presentation.body_language);
+        if (psych.presentation?.speech_pattern) traits.push(psych.presentation.speech_pattern);
+      }
+
+      // Character role and archetype
+      const role = character.role || 'mysterious figure';
+      const archetype = character.archetype || 'the unknown';
+      const motivation = character.motivation || 'unknown purpose';
+
+      // Build the portrait prompt
+      const genreStyle = {
+        fantasy: 'epic fantasy art style, dramatic lighting, magical atmosphere',
+        scifi: 'sci-fi concept art style, futuristic, high-tech aesthetic',
+        horror: 'dark atmospheric style, ominous, gothic horror aesthetic',
+        romance: 'romantic portrait style, soft lighting, elegant',
+        thriller: 'noir style, dramatic shadows, intense mood',
+        mystery: 'mysterious atmosphere, shadowy, enigmatic',
+        western: 'western frontier style, rugged, dusty atmosphere',
+        dystopian: 'dystopian art style, gritty, post-apocalyptic'
+      };
+
+      const styleGuide = genreStyle[genre?.toLowerCase()] || genreStyle.fantasy;
+
+      const prompt = `Create a stunning character portrait for a story character:
+
+Character: ${character.name || 'Unknown'}
+Role: ${role}
+Archetype: ${archetype}
+Key traits: ${traits.join(', ') || 'mysterious, complex personality'}
+Motivation: ${motivation}
+
+Style: ${styleGuide}
+Requirements: Head and shoulders portrait, expressive eyes, detailed face, professional quality, suitable for a book character. No text or watermarks.`;
+
+      console.log('[Portrait] Sending request to DALL-E 3...');
+
+      const response = await fetch('/api/dalle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt,
+          size: '1024x1024',
+          quality: 'standard',
+          style: 'vivid'
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        console.error('[Portrait] API error:', data);
+        throw new Error(data.error || 'Failed to generate portrait');
+      }
+
+      if (data.imageUrl) {
+        console.log('[Portrait] Successfully generated portrait');
+
+        // Update character with portrait URL
+        character.portraitUrl = data.imageUrl;
+        character.portraitGeneratedAt = new Date().toISOString();
+
+        // Save updated character to storage
+        storage.saveCharacter(character);
+        setCharacters(storage.getCharacters());
+
+        return data.imageUrl;
+      }
+
+      return null;
+    } catch (error) {
+      console.error('[Portrait] Generation failed:', error);
+      alert(`Portrait generation failed: ${error.message}`);
+      return null;
+    } finally {
+      setGeneratingPortrait(null);
+    }
+  };
+
+  // ============================================
+  // STORY SHARING
+  // ============================================
+
+  /**
+   * Share the current story with other Loominaries
+   */
+  const shareCurrentStory = async () => {
+    if (!storyBible) {
+      alert('No story to share!');
+      return;
+    }
+
+    setShowShareModal(true);
+    setShareData({ loading: true, error: null, code: null, url: null });
+    setShareCopied(false);
+
+    try {
+      const storyData = {
+        bible: storyBible,
+        generatedChapters: storyBible.generatedChapters || [],
+        coverGradient: storyBible.coverGradient || 'from-purple-900 to-indigo-900',
+        authorName: authUser?.user_metadata?.display_name || 'Anonymous Loominary'
+      };
+
+      const result = await cloudStorage.shareStory(storyBible.storyId, storyData);
+
+      if (result) {
+        setShareData({
+          loading: false,
+          error: null,
+          code: result.code,
+          url: result.url,
+          expiresAt: result.expiresAt
+        });
+      } else {
+        throw new Error('Failed to create share link');
+      }
+    } catch (error) {
+      console.error('[Share] Error:', error);
+      setShareData({
+        loading: false,
+        error: error.message || 'Failed to share story',
+        code: null,
+        url: null
+      });
+    }
+  };
+
+  /**
+   * Copy share link to clipboard
+   */
+  const copyShareLink = async () => {
+    if (!shareData?.url) return;
+
+    try {
+      await navigator.clipboard.writeText(shareData.url);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    } catch (error) {
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = shareData.url;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    }
+  };
+
+  /**
+   * Share to social media
+   */
+  const shareToSocial = (platform) => {
+    if (!shareData?.url || !storyBible) return;
+
+    const title = storyBible.title || 'My Story';
+    const text = `Check out "${title}" - a ${storyBible.genre} story I created on Loomiverse!`;
+    const url = shareData.url;
+
+    let shareUrl;
+    switch (platform) {
+      case 'twitter':
+        shareUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
+        break;
+      case 'facebook':
+        shareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}&quote=${encodeURIComponent(text)}`;
+        break;
+      case 'reddit':
+        shareUrl = `https://www.reddit.com/submit?url=${encodeURIComponent(url)}&title=${encodeURIComponent(text)}`;
+        break;
+      default:
+        return;
+    }
+
+    window.open(shareUrl, '_blank', 'width=600,height=400');
+  };
+
+  // ============================================
+  // COLLABORATIVE STORIES
+  // ============================================
+
+  /**
+   * Load user's active collaborative sessions
+   */
+  const loadMyCollabSessions = async () => {
+    if (!authUser) return;
+    const sessions = await cloudStorage.listMyCollabSessions();
+    setMyCollabSessions(sessions);
+  };
+
+  /**
+   * Create a new collaborative story session
+   */
+  const createCollabSession = async (options = {}) => {
+    if (!authUser) {
+      setCollabError('Please sign in to create collaborative stories');
+      return;
+    }
+
+    setCollabLoading(true);
+    setCollabError('');
+
+    try {
+      const session = await cloudStorage.createCollabSession({
+        displayName: collabDisplayName || authUser.email?.split('@')[0] || 'Loominary',
+        title: options.title || 'Collaborative Story',
+        genre: options.genre || null,
+        ...options
+      });
+
+      if (session) {
+        setCollabSession(session);
+        setShowCollabModal(false);
+        setScreen('collab-lobby');
+
+        // Subscribe to real-time updates
+        if (collabUnsubscribeRef.current) {
+          collabUnsubscribeRef.current();
+        }
+        collabUnsubscribeRef.current = cloudStorage.subscribeToSession(session.id, handleCollabUpdate);
+      } else {
+        throw new Error('Failed to create session');
+      }
+    } catch (error) {
+      setCollabError(error.message || 'Failed to create session');
+    } finally {
+      setCollabLoading(false);
+    }
+  };
+
+  /**
+   * Join an existing collaborative session
+   */
+  const joinCollabSession = async () => {
+    if (!authUser) {
+      setCollabError('Please sign in to join collaborative stories');
+      return;
+    }
+
+    if (!collabJoinCode || collabJoinCode.length !== 6) {
+      setCollabError('Please enter a valid 6-character code');
+      return;
+    }
+
+    setCollabLoading(true);
+    setCollabError('');
+
+    try {
+      const result = await cloudStorage.joinCollabSession(
+        collabJoinCode.toUpperCase(),
+        collabDisplayName || authUser.email?.split('@')[0] || 'Loominary'
+      );
+
+      if (result.error) {
+        throw new Error(result.error);
+      }
+
+      // Get full session details
+      const fullSession = await cloudStorage.getCollabSession(result.session.id);
+      setCollabSession(fullSession);
+      setShowCollabModal(false);
+      setScreen(fullSession.status === 'active' ? 'collab-story' : 'collab-lobby');
+
+      // Subscribe to real-time updates
+      if (collabUnsubscribeRef.current) {
+        collabUnsubscribeRef.current();
+      }
+      collabUnsubscribeRef.current = cloudStorage.subscribeToSession(fullSession.id, handleCollabUpdate);
+    } catch (error) {
+      setCollabError(error.message || 'Failed to join session');
+    } finally {
+      setCollabLoading(false);
+    }
+  };
+
+  /**
+   * Handle real-time updates from collaborative session
+   */
+  const handleCollabUpdate = async (update) => {
+    console.log('[Collab] Update received:', update.type);
+
+    switch (update.type) {
+      case 'session':
+        // Session data changed (status, chapters, turn)
+        setCollabSession(prev => prev ? { ...prev, ...update.data } : null);
+        break;
+
+      case 'participant_joined':
+        setCollabSession(prev => {
+          if (!prev) return null;
+          const existing = prev.participants?.find(p => p.user_id === update.data.user_id);
+          if (existing) return prev;
+          return {
+            ...prev,
+            participants: [...(prev.participants || []), update.data]
+          };
+        });
+        break;
+
+      case 'participant_left':
+        setCollabSession(prev => {
+          if (!prev) return null;
+          return {
+            ...prev,
+            participants: prev.participants?.map(p =>
+              p.user_id === update.data.user_id ? { ...p, status: 'left' } : p
+            )
+          };
+        });
+        break;
+
+      case 'contribution':
+        // New chapter/content added - refresh full session
+        if (collabSession?.id) {
+          const refreshed = await cloudStorage.getCollabSession(collabSession.id);
+          setCollabSession(refreshed);
+        }
+        break;
+    }
+  };
+
+  /**
+   * Start the collaborative story (host only)
+   */
+  const startCollabStory = async () => {
+    if (!collabSession?.isHost) return;
+
+    setCollabLoading(true);
+    try {
+      await cloudStorage.updateCollabSessionStatus(collabSession.id, 'active');
+      setCollabSession(prev => prev ? { ...prev, status: 'active' } : null);
+      setScreen('collab-story');
+    } catch (error) {
+      console.error('[Collab] Start error:', error);
+    } finally {
+      setCollabLoading(false);
+    }
+  };
+
+  /**
+   * Leave the collaborative session
+   */
+  const leaveCollabSession = async () => {
+    if (!collabSession) return;
+
+    if (collabUnsubscribeRef.current) {
+      collabUnsubscribeRef.current();
+      collabUnsubscribeRef.current = null;
+    }
+
+    await cloudStorage.leaveCollabSession(collabSession.id);
+    setCollabSession(null);
+    setScreen('landing');
+    loadMyCollabSessions();
+  };
+
+  /**
+   * Refresh collaborative session data
+   */
+  const refreshCollabSession = async () => {
+    if (!collabSession?.id) return;
+
+    const refreshed = await cloudStorage.getCollabSession(collabSession.id);
+    if (refreshed) {
+      setCollabSession(refreshed);
+    }
+  };
+
+  /**
+   * Copy collab session code to clipboard
+   */
+  const copyCollabCode = async () => {
+    if (!collabSession?.session_code) return;
+
+    try {
+      await navigator.clipboard.writeText(collabSession.session_code);
+      alert('Code copied! Share this with fellow Loominaries');
+    } catch (error) {
+      // Fallback
+      const textArea = document.createElement('textarea');
+      textArea.value = collabSession.session_code;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      alert('Code copied! Share this with fellow Loominaries');
+    }
+  };
+
   // Load story from storage
   const loadStory = (id) => {
     const data = storage.loadStory(id);
@@ -4113,6 +4629,32 @@ IMPORTANT:
         />
       </div>
 
+      {/* Offline Banner */}
+      {showOfflineBanner && (
+        <div className="fixed top-0 left-0 right-0 z-[100] bg-amber-600 text-gray-950 px-4 py-2 text-center text-sm font-medium flex items-center justify-center gap-2 animate-fade-in">
+          <CloudOff className="w-4 h-4" />
+          <span>You're offline - Your stories are saved locally</span>
+          <button
+            onClick={() => setShowOfflineBanner(false)}
+            className="ml-2 text-gray-800 hover:text-gray-950"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Offline Indicator (persistent small dot) */}
+      {!isOnline && !showOfflineBanner && (
+        <div
+          className="fixed top-4 right-4 z-[100] flex items-center gap-2 px-3 py-1.5 bg-gray-900/80 backdrop-blur-sm border border-amber-500/50 rounded-full cursor-pointer"
+          onClick={() => setShowOfflineBanner(true)}
+          title="You're offline"
+        >
+          <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
+          <span className="text-xs text-amber-500">Offline</span>
+        </div>
+      )}
+
       {/* Loading Overlay - CINEMATIC */}
       {loading && (
         <div className="loading-cinematic">
@@ -4227,17 +4769,23 @@ IMPORTANT:
                 </div>
               </div>
 
-              <div className="opacity-50">
-                <label className="block text-sm text-gray-400 mb-1">
-                  Image Generation API Key
-                  <span className="ml-2 text-xs text-gray-600">(Coming Soon)</span>
-                </label>
-                <input
-                  type="password"
-                  disabled
-                  placeholder="For book covers & character portraits"
-                  className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-gray-500 cursor-not-allowed"
-                />
+              {/* Character Portraits Section */}
+              <div className="pt-4 border-t border-gray-800">
+                <h3 className="text-sm font-bold text-amber-500 mb-3 flex items-center gap-2">
+                  <span>🎨</span> Character Portraits
+                </h3>
+                <p className="text-xs text-gray-500 mb-3">
+                  Generate AI portraits for your characters using DALL-E 3. Portraits appear in character chat and the story cast.
+                </p>
+                <div className="p-3 bg-emerald-900/20 border border-emerald-700/30 rounded-lg">
+                  <div className="flex items-center gap-2 text-emerald-400 text-sm">
+                    <Check className="w-4 h-4" />
+                    <span>Powered by OpenAI DALL-E 3</span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Look for the ✨ sparkle button next to characters without portraits
+                  </p>
+                </div>
               </div>
 
               {/* Audio Narration Settings */}
@@ -4809,11 +5357,20 @@ IMPORTANT:
               </button>
             </div>
 
-            {/* Friends Mode Banner */}
+            {/* Collaborative Stories Banner */}
             <div className="mb-12">
               <button
-                onClick={() => setScreen('friendsMode')}
-                className="w-full p-6 rounded-2xl border group text-left transition-all"
+                onClick={() => {
+                  if (!authUser) {
+                    setShowAuthModal(true);
+                  } else {
+                    setShowCollabModal(true);
+                    setCollabMode(null);
+                    setCollabError('');
+                    loadMyCollabSessions();
+                  }
+                }}
+                className="w-full p-6 rounded-2xl border group text-left transition-all hover:border-emerald-500/60"
                 style={{
                   borderColor: '#10b981' + '40',
                   background: `linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, transparent 50%, rgba(16, 185, 129, 0.05) 100%)`
@@ -4828,11 +5385,11 @@ IMPORTANT:
                   </div>
                   <div className="flex-1">
                     <h3 className="text-xl font-bold mb-1 flex items-center gap-2">
-                      Friends Mode
+                      Collaborative Stories
                       <span className="px-2 py-0.5 text-xs bg-emerald-500/20 text-emerald-400 rounded-full">NEW</span>
                     </h3>
                     <p className="text-sm opacity-50">
-                      Create or join a story session with friends. Read together, vote on choices, and chat in real-time!
+                      Create or join a story session with fellow Loominaries. Take turns writing, collaborate in real-time!
                     </p>
                   </div>
                   <ChevronRight className="w-6 h-6 text-emerald-500 opacity-50 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
@@ -5652,6 +6209,274 @@ IMPORTANT:
         </div>
       )}
 
+      {/* COLLABORATIVE STORY LOBBY */}
+      {screen === 'collab-lobby' && collabSession && (
+        <div className="relative z-10 min-h-screen p-8">
+          <div className="max-w-2xl mx-auto">
+            {/* Header */}
+            <div className="flex justify-between items-start mb-8">
+              <div>
+                <h1 className="text-3xl font-bold text-white mb-2">
+                  {collabSession.title || 'Collaborative Story'}
+                </h1>
+                <div className="flex items-center gap-4">
+                  <span className="text-gray-400">Session Code:</span>
+                  <button
+                    onClick={copyCollabCode}
+                    className="font-mono text-2xl font-bold text-emerald-400 hover:text-emerald-300 transition-colors flex items-center gap-2"
+                  >
+                    {collabSession.session_code}
+                    <Copy className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+              <button
+                onClick={leaveCollabSession}
+                className="text-gray-500 hover:text-red-400 transition-colors"
+              >
+                Leave Session
+              </button>
+            </div>
+
+            {/* Status Banner */}
+            <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl mb-8 text-center">
+              <p className="text-amber-400 font-bold">Waiting for Loominaries to join...</p>
+              <p className="text-sm text-gray-400 mt-1">Share the code above with friends to invite them</p>
+            </div>
+
+            {/* Participants */}
+            <div className="mb-8">
+              <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                <Users className="w-5 h-5 text-emerald-500" />
+                Participants ({collabSession.participants?.filter(p => p.status === 'active').length || 0}/{collabSession.settings?.maxParticipants || 4})
+              </h3>
+              <div className="space-y-2">
+                {collabSession.participants?.filter(p => p.status === 'active').map((participant, idx) => (
+                  <div
+                    key={participant.user_id || idx}
+                    className={`p-4 rounded-lg border flex items-center justify-between ${
+                      participant.role === 'host'
+                        ? 'bg-emerald-500/10 border-emerald-500/30'
+                        : 'bg-gray-800/50 border-gray-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold ${
+                        participant.role === 'host' ? 'bg-emerald-500 text-white' : 'bg-gray-700 text-gray-300'
+                      }`}>
+                        {participant.display_name?.charAt(0)?.toUpperCase() || '?'}
+                      </div>
+                      <div>
+                        <p className="font-bold text-white">{participant.display_name}</p>
+                        <p className="text-xs text-gray-500">
+                          {participant.role === 'host' ? 'Host' : 'Contributor'}
+                        </p>
+                      </div>
+                    </div>
+                    {participant.user_id === authUser?.id && (
+                      <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-1 rounded">You</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Start Button (Host Only) */}
+            {collabSession.isHost && (
+              <button
+                onClick={startCollabStory}
+                disabled={collabLoading || (collabSession.participants?.filter(p => p.status === 'active').length || 0) < 1}
+                className="w-full py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-lg rounded-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all"
+              >
+                {collabLoading ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Starting...
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-5 h-5" />
+                    Start the Story
+                  </>
+                )}
+              </button>
+            )}
+
+            {!collabSession.isHost && (
+              <div className="text-center text-gray-500">
+                <p>Waiting for the host to start the story...</p>
+              </div>
+            )}
+
+            {/* Refresh Button */}
+            <button
+              onClick={refreshCollabSession}
+              className="w-full mt-4 py-3 border border-gray-700 text-gray-400 hover:text-white hover:border-gray-600 rounded-lg transition-colors"
+            >
+              Refresh
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* COLLABORATIVE STORY - ACTIVE SESSION */}
+      {screen === 'collab-story' && collabSession && (
+        <div className="relative z-10 min-h-screen p-8">
+          <div className="max-w-4xl mx-auto">
+            {/* Header */}
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h1 className="text-2xl font-bold text-white">{collabSession.title}</h1>
+                <p className="text-sm text-gray-500">
+                  {collabSession.genre || 'Collaborative Story'} • Session: {collabSession.session_code}
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={refreshCollabSession}
+                  className="p-2 text-gray-500 hover:text-white transition-colors"
+                  title="Refresh"
+                >
+                  ↻
+                </button>
+                <button
+                  onClick={leaveCollabSession}
+                  className="text-sm text-gray-500 hover:text-red-400 transition-colors"
+                >
+                  Leave
+                </button>
+              </div>
+            </div>
+
+            {/* Turn Indicator */}
+            <div className={`p-4 rounded-xl mb-6 text-center ${
+              collabSession.isMyTurn
+                ? 'bg-emerald-500/20 border border-emerald-500/50'
+                : 'bg-gray-800/50 border border-gray-700'
+            }`}>
+              {collabSession.isMyTurn ? (
+                <>
+                  <p className="text-emerald-400 font-bold text-lg">It's Your Turn!</p>
+                  <p className="text-sm text-gray-400">Write the next part of the story below</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-gray-400 font-bold">
+                    Waiting for {
+                      collabSession.participants?.find(p =>
+                        p.user_id === collabSession.turn_order?.[collabSession.current_turn_index]
+                      )?.display_name || 'another Loominary'
+                    }...
+                  </p>
+                  <p className="text-sm text-gray-500">They're writing the next part</p>
+                </>
+              )}
+            </div>
+
+            {/* Participants Bar */}
+            <div className="flex items-center gap-2 mb-6 pb-4 border-b border-gray-800 overflow-x-auto">
+              {collabSession.turn_order?.map((userId, idx) => {
+                const participant = collabSession.participants?.find(p => p.user_id === userId);
+                const isCurrent = idx === collabSession.current_turn_index;
+                return (
+                  <div
+                    key={userId}
+                    className={`flex-shrink-0 flex items-center gap-2 px-3 py-2 rounded-full transition-all ${
+                      isCurrent
+                        ? 'bg-emerald-500/20 border border-emerald-500/50'
+                        : 'bg-gray-800/50 border border-gray-700'
+                    }`}
+                  >
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                      isCurrent ? 'bg-emerald-500 text-white' : 'bg-gray-700 text-gray-400'
+                    }`}>
+                      {participant?.display_name?.charAt(0)?.toUpperCase() || '?'}
+                    </div>
+                    <span className={`text-sm ${isCurrent ? 'text-emerald-400' : 'text-gray-500'}`}>
+                      {participant?.display_name || 'Unknown'}
+                      {participant?.user_id === authUser?.id && ' (You)'}
+                    </span>
+                    {isCurrent && <span className="text-emerald-500">✍️</span>}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Story Content */}
+            <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-6 mb-6 max-h-[40vh] overflow-y-auto">
+              {(!collabSession.generated_chapters || collabSession.generated_chapters.length === 0) ? (
+                <p className="text-gray-500 italic text-center py-8">
+                  The story hasn't begun yet. {collabSession.isMyTurn ? 'Start writing below!' : 'Waiting for the first contribution...'}
+                </p>
+              ) : (
+                <div className="space-y-6">
+                  {collabSession.generated_chapters.map((chapter, idx) => {
+                    const contribution = collabSession.contributions?.[idx];
+                    const author = collabSession.participants?.find(p => p.user_id === contribution?.user_id);
+                    return (
+                      <div key={idx} className="border-b border-gray-800 pb-4 last:border-0">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-xs text-gray-500">Part {idx + 1}</span>
+                          {author && (
+                            <span className="text-xs text-emerald-500">by {author.display_name}</span>
+                          )}
+                        </div>
+                        <p className="text-gray-300 whitespace-pre-wrap">{chapter}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Contribution Input (only when it's your turn) */}
+            {collabSession.isMyTurn && (
+              <div className="space-y-4">
+                <textarea
+                  value={interactiveInput}
+                  onChange={(e) => setInteractiveInput(e.target.value)}
+                  placeholder="Continue the story... What happens next?"
+                  className="w-full h-40 px-4 py-3 bg-gray-800 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:border-emerald-500 focus:outline-none resize-none"
+                />
+                <button
+                  onClick={async () => {
+                    if (!interactiveInput.trim()) return;
+                    setInteractiveLoading(true);
+                    const result = await cloudStorage.submitContribution(collabSession.id, interactiveInput.trim());
+                    setInteractiveLoading(false);
+                    if (result.success) {
+                      setInteractiveInput('');
+                      await refreshCollabSession();
+                    } else if (result.error) {
+                      alert(result.error);
+                    }
+                  }}
+                  disabled={interactiveLoading || !interactiveInput.trim()}
+                  className="w-full py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {interactiveLoading ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Submitting...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-5 h-5" />
+                      Submit Your Contribution
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+
+            {/* Chapter Count */}
+            <div className="mt-6 text-center text-sm text-gray-500">
+              {collabSession.generated_chapters?.length || 0} parts written so far
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* PROFILE SCREEN */}
       {screen === 'profile' && (
         <div className="relative z-10 min-h-screen p-8">
@@ -6214,6 +7039,13 @@ IMPORTANT:
                     </span>
                   )}
                 </button>
+                <button
+                  onClick={shareCurrentStory}
+                  className="p-2 hover:bg-gray-800 rounded"
+                  title="Share Story"
+                >
+                  <Share2 className="w-4 h-4 text-gray-500 hover:text-amber-500" />
+                </button>
                 <div className="flex items-center gap-3 bg-gray-900/50 px-3 py-1.5 rounded-full">
                   <div className="w-24 h-1.5 bg-gray-800 rounded-full overflow-hidden">
                     <div
@@ -6602,17 +7434,31 @@ IMPORTANT:
                     {Object.values(storyBible.characters)
                       .filter(c => c.name !== storyBible.protagonist?.name && c.status === 'active')
                       .map(c => (
-                        <div 
-                          key={c.name} 
+                        <div
+                          key={c.name}
                           className="p-2 border border-gray-800 rounded cursor-pointer hover:border-gray-700 transition-colors"
                           onClick={() => setExpandedCharacter(expandedCharacter === c.name ? null : c.name)}
                         >
-                          <div className="flex items-center justify-between">
-                            <div>
+                          <div className="flex items-center gap-3">
+                            {/* Character Portrait */}
+                            <div className="relative shrink-0">
+                              {c.portraitUrl ? (
+                                <img
+                                  src={c.portraitUrl}
+                                  alt={c.name}
+                                  className="w-10 h-10 rounded-full object-cover border border-amber-500/30"
+                                />
+                              ) : (
+                                <div className="w-10 h-10 rounded-full bg-gray-800 flex items-center justify-center">
+                                  <User className="w-5 h-5 text-gray-600" />
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
                               <span className="text-gray-200 font-medium text-sm">{c.name}</span>
                               <span className="text-gray-600 text-xs ml-2">— {c.role}</span>
                             </div>
-                            <span className="text-xs text-gray-600">{expandedCharacter === c.name ? '▼' : '▶'}</span>
+                            <span className="text-xs text-gray-600 shrink-0">{expandedCharacter === c.name ? '▼' : '▶'}</span>
                           </div>
                           
                           {c.traits?.length > 0 && (
@@ -6641,17 +7487,38 @@ IMPORTANT:
                                   )}
                                 </>
                               )}
-                              {/* Chat with Character Button */}
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  startCharacterChat(c);
-                                }}
-                                className="mt-2 w-full flex items-center justify-center gap-2 px-3 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-gray-300 text-xs transition-colors"
-                              >
-                                <MessageCircle className="w-3 h-3" />
-                                Chat with {c.name}
-                              </button>
+                              {/* Action Buttons */}
+                              <div className="mt-2 flex gap-2">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    startCharacterChat(c);
+                                  }}
+                                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-gray-300 text-xs transition-colors"
+                                >
+                                  <MessageCircle className="w-3 h-3" />
+                                  Chat
+                                </button>
+                                {!c.portraitUrl && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      generateCharacterPortrait(c, storyBible?.genre || 'fantasy');
+                                    }}
+                                    disabled={generatingPortrait === c.id}
+                                    className="flex items-center justify-center gap-2 px-3 py-2 bg-amber-600/20 hover:bg-amber-600/30 border border-amber-600/50 rounded text-amber-500 text-xs transition-colors disabled:opacity-50"
+                                  >
+                                    {generatingPortrait === c.id ? (
+                                      <span className="animate-pulse">Generating...</span>
+                                    ) : (
+                                      <>
+                                        <Sparkles className="w-3 h-3" />
+                                        Portrait
+                                      </>
+                                    )}
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           )}
                         </div>
@@ -6821,26 +7688,64 @@ IMPORTANT:
             ) : (
               <div className="space-y-3">
                 {characters.map(char => (
-                  <button
+                  <div
                     key={char.id}
-                    onClick={() => startCharacterChat(char)}
-                    className="w-full p-4 bg-gray-900/50 border border-gray-800 hover:border-purple-500/50 rounded-xl flex items-center gap-4 text-left transition-all group"
+                    className="w-full p-4 bg-gray-900/50 border border-gray-800 hover:border-purple-500/50 rounded-xl flex items-center gap-4 transition-all group"
                   >
-                    <div className="w-12 h-12 rounded-full bg-purple-500/20 flex items-center justify-center group-hover:bg-purple-500/30 transition-colors">
-                      <User className="w-6 h-6 text-purple-400" />
+                    {/* Portrait or placeholder */}
+                    <div className="relative">
+                      {char.portraitUrl ? (
+                        <img
+                          src={char.portraitUrl}
+                          alt={char.name}
+                          className="w-14 h-14 rounded-full object-cover border-2 border-purple-500/50"
+                        />
+                      ) : (
+                        <div className="w-14 h-14 rounded-full bg-purple-500/20 flex items-center justify-center">
+                          <User className="w-7 h-7 text-purple-400" />
+                        </div>
+                      )}
+                      {/* Generate portrait button */}
+                      {!char.portraitUrl && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            generateCharacterPortrait(char, char.originGenre || 'fantasy');
+                          }}
+                          disabled={generatingPortrait === char.id}
+                          className="absolute -bottom-1 -right-1 w-6 h-6 bg-amber-600 hover:bg-amber-500 disabled:bg-gray-600 rounded-full flex items-center justify-center text-white text-xs transition-colors"
+                          title="Generate Portrait"
+                        >
+                          {generatingPortrait === char.id ? (
+                            <span className="animate-spin">⏳</span>
+                          ) : (
+                            <Sparkles className="w-3 h-3" />
+                          )}
+                        </button>
+                      )}
                     </div>
-                    <div className="flex-1 min-w-0">
+
+                    {/* Character info - clickable to chat */}
+                    <button
+                      onClick={() => startCharacterChat(char)}
+                      className="flex-1 min-w-0 text-left"
+                    >
                       <h3 className="font-bold text-white truncate">{char.name || 'Unknown'}</h3>
                       <p className="text-sm text-gray-500 truncate">
                         {char.role || 'Character'}
                         {char.originStoryTitle && <span className="text-purple-400"> • {char.originStoryTitle}</span>}
                       </p>
-                    </div>
-                    <div className="flex items-center gap-2 text-purple-400 group-hover:text-purple-300">
+                    </button>
+
+                    {/* Chat button */}
+                    <button
+                      onClick={() => startCharacterChat(char)}
+                      className="flex items-center gap-2 text-purple-400 hover:text-purple-300 transition-colors"
+                    >
                       <span className="text-sm">Chat</span>
                       <ChevronRight className="w-4 h-4" />
-                    </div>
-                  </button>
+                    </button>
+                  </div>
                 ))}
               </div>
             )}
@@ -6980,25 +7885,52 @@ IMPORTANT:
               <Home className="w-4 h-4" />
               <span className="text-sm font-medium">Library</span>
             </button>
-            <div className="text-center">
-              <h1 className="text-lg font-bold text-white">{chatCharacter.name || 'Character'}</h1>
-              <p className="text-xs text-amber-500">{chatCharacter.role || 'Story Character'}</p>
-              {chatMessages.length > 1 && (
-                <button
-                  onClick={() => {
-                    if (confirm(`Clear chat history with ${chatCharacter.name}?`)) {
-                      storage.clearCharacterConversation(chatCharacter.id);
-                      setChatMessages([{
-                        role: 'character',
-                        content: `*${chatCharacter.name} looks up* Starting fresh? Alright, what would you like to talk about?`
-                      }]);
-                    }
-                  }}
-                  className="text-xs text-gray-600 hover:text-gray-400 mt-1"
-                >
-                  Clear history
-                </button>
-              )}
+            <div className="flex items-center gap-3">
+              {/* Character Portrait */}
+              <div className="relative">
+                {chatCharacter.portraitUrl ? (
+                  <img
+                    src={chatCharacter.portraitUrl}
+                    alt={chatCharacter.name}
+                    className="w-12 h-12 rounded-full object-cover border-2 border-amber-500/50"
+                  />
+                ) : (
+                  <div className="w-12 h-12 rounded-full bg-purple-500/20 flex items-center justify-center">
+                    <User className="w-6 h-6 text-purple-400" />
+                  </div>
+                )}
+                {/* Generate portrait button if none exists */}
+                {!chatCharacter.portraitUrl && (
+                  <button
+                    onClick={() => generateCharacterPortrait(chatCharacter, chatCharacter.originGenre || 'fantasy')}
+                    disabled={generatingPortrait === chatCharacter.id}
+                    className="absolute -bottom-1 -right-1 w-5 h-5 bg-amber-600 hover:bg-amber-500 disabled:bg-gray-600 rounded-full flex items-center justify-center text-white text-xs"
+                    title="Generate Portrait"
+                  >
+                    {generatingPortrait === chatCharacter.id ? '...' : <Sparkles className="w-2.5 h-2.5" />}
+                  </button>
+                )}
+              </div>
+              <div className="text-center">
+                <h1 className="text-lg font-bold text-white">{chatCharacter.name || 'Character'}</h1>
+                <p className="text-xs text-amber-500">{chatCharacter.role || 'Story Character'}</p>
+                {chatMessages.length > 1 && (
+                  <button
+                    onClick={() => {
+                      if (confirm(`Clear chat history with ${chatCharacter.name}?`)) {
+                        storage.clearCharacterConversation(chatCharacter.id);
+                        setChatMessages([{
+                          role: 'character',
+                          content: `*${chatCharacter.name} looks up* Starting fresh? Alright, what would you like to talk about?`
+                        }]);
+                      }
+                    }}
+                    className="text-xs text-gray-600 hover:text-gray-400 mt-1"
+                  >
+                    Clear history
+                  </button>
+                )}
+              </div>
             </div>
             {storyBible ? (
               <button
@@ -7243,6 +8175,346 @@ IMPORTANT:
                 {confirmModal.confirmText || 'Confirm'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Share Story Modal */}
+      {showShareModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
+          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">
+            {/* Header */}
+            <div className="flex justify-between items-center mb-6">
+              <div className="flex items-center gap-3">
+                <Share2 className="w-6 h-6 text-amber-500" />
+                <h3 className="text-xl font-bold text-white">Share Your Story</h3>
+              </div>
+              <button
+                onClick={() => {
+                  setShowShareModal(false);
+                  setShareData(null);
+                }}
+                className="text-gray-500 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Loading State */}
+            {shareData?.loading && (
+              <div className="text-center py-8">
+                <div className="w-12 h-12 border-2 border-amber-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                <p className="text-gray-400">Creating share link...</p>
+              </div>
+            )}
+
+            {/* Error State */}
+            {shareData?.error && (
+              <div className="text-center py-8">
+                <div className="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-4">
+                  <X className="w-6 h-6 text-red-500" />
+                </div>
+                <p className="text-red-400 mb-4">{shareData.error}</p>
+                <button
+                  onClick={shareCurrentStory}
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-gray-950 rounded-lg font-bold"
+                >
+                  Try Again
+                </button>
+              </div>
+            )}
+
+            {/* Success State */}
+            {shareData?.code && !shareData?.loading && (
+              <div className="space-y-6">
+                {/* Story Info */}
+                <div className="p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                  <h4 className="font-bold text-white mb-1">{storyBible?.title || 'Untitled Story'}</h4>
+                  <p className="text-sm text-gray-400">{storyBible?.genre} • {storyBible?.currentChapter} chapters</p>
+                </div>
+
+                {/* Share Code */}
+                <div className="text-center">
+                  <p className="text-sm text-gray-500 mb-2">Share Code</p>
+                  <div className="font-mono text-3xl font-bold text-amber-500 tracking-widest">
+                    {shareData.code}
+                  </div>
+                </div>
+
+                {/* Copy Link */}
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={shareData.url}
+                    readOnly
+                    className="flex-1 px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-300 text-sm font-mono"
+                  />
+                  <button
+                    onClick={copyShareLink}
+                    className={`px-4 py-3 rounded-lg font-bold flex items-center gap-2 transition-all ${
+                      shareCopied
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-amber-600 hover:bg-amber-500 text-gray-950'
+                    }`}
+                  >
+                    {shareCopied ? (
+                      <>
+                        <Check className="w-4 h-4" />
+                        Copied!
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-4 h-4" />
+                        Copy
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Social Share */}
+                <div>
+                  <p className="text-sm text-gray-500 mb-3">Share with fellow Loominaries</p>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => shareToSocial('twitter')}
+                      className="flex-1 py-3 bg-[#1DA1F2] hover:bg-[#1a8cd8] text-white rounded-lg font-bold flex items-center justify-center gap-2 transition-colors"
+                    >
+                      <span className="text-lg">𝕏</span>
+                      Twitter
+                    </button>
+                    <button
+                      onClick={() => shareToSocial('facebook')}
+                      className="flex-1 py-3 bg-[#4267B2] hover:bg-[#365899] text-white rounded-lg font-bold flex items-center justify-center gap-2 transition-colors"
+                    >
+                      <span className="text-lg">f</span>
+                      Facebook
+                    </button>
+                    <button
+                      onClick={() => shareToSocial('reddit')}
+                      className="flex-1 py-3 bg-[#FF4500] hover:bg-[#e63e00] text-white rounded-lg font-bold flex items-center justify-center gap-2 transition-colors"
+                    >
+                      <span className="text-lg">r/</span>
+                      Reddit
+                    </button>
+                  </div>
+                </div>
+
+                {/* Expiry Note */}
+                <p className="text-xs text-gray-600 text-center">
+                  This link expires in 30 days
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Collaborative Stories Modal */}
+      {showCollabModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
+          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 max-w-lg w-full mx-4 shadow-2xl max-h-[90vh] overflow-y-auto">
+            {/* Header */}
+            <div className="flex justify-between items-center mb-6">
+              <div className="flex items-center gap-3">
+                <Users className="w-6 h-6 text-emerald-500" />
+                <h3 className="text-xl font-bold text-white">Collaborative Stories</h3>
+              </div>
+              <button
+                onClick={() => {
+                  setShowCollabModal(false);
+                  setCollabMode(null);
+                  setCollabError('');
+                }}
+                className="text-gray-500 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Error Message */}
+            {collabError && (
+              <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+                {collabError}
+              </div>
+            )}
+
+            {/* Main Menu (no mode selected) */}
+            {!collabMode && (
+              <div className="space-y-4">
+                {/* Active Sessions */}
+                {myCollabSessions.length > 0 && (
+                  <div className="mb-6">
+                    <h4 className="text-sm font-bold text-gray-400 uppercase tracking-wide mb-3">
+                      Your Active Sessions
+                    </h4>
+                    <div className="space-y-2">
+                      {myCollabSessions.map(session => (
+                        <button
+                          key={session.id}
+                          onClick={async () => {
+                            const fullSession = await cloudStorage.getCollabSession(session.id);
+                            setCollabSession(fullSession);
+                            setShowCollabModal(false);
+                            setScreen(fullSession.status === 'active' ? 'collab-story' : 'collab-lobby');
+                            if (collabUnsubscribeRef.current) collabUnsubscribeRef.current();
+                            collabUnsubscribeRef.current = cloudStorage.subscribeToSession(session.id, handleCollabUpdate);
+                          }}
+                          className="w-full p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-left hover:bg-emerald-500/20 transition-colors"
+                        >
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <h5 className="font-bold text-white">{session.title}</h5>
+                              <p className="text-sm text-gray-400">
+                                Code: <span className="font-mono text-emerald-400">{session.session_code}</span>
+                                {session.isHost && <span className="ml-2 text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded">Host</span>}
+                              </p>
+                            </div>
+                            <span className={`text-xs px-2 py-1 rounded ${
+                              session.status === 'waiting' ? 'bg-amber-500/20 text-amber-400' :
+                              session.status === 'active' ? 'bg-emerald-500/20 text-emerald-400' :
+                              'bg-gray-500/20 text-gray-400'
+                            }`}>
+                              {session.status}
+                            </span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Create / Join Options */}
+                <button
+                  onClick={() => setCollabMode('create')}
+                  className="w-full p-6 bg-gradient-to-r from-emerald-600/20 to-teal-600/20 border border-emerald-500/40 rounded-xl text-left hover:border-emerald-500/60 transition-all group"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-emerald-500/20 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
+                      <Play className="w-6 h-6 text-emerald-500" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-white text-lg">Create New Session</h4>
+                      <p className="text-sm text-gray-400">Start a story and invite fellow Loominaries</p>
+                    </div>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => setCollabMode('join')}
+                  className="w-full p-6 bg-gradient-to-r from-blue-600/20 to-purple-600/20 border border-blue-500/40 rounded-xl text-left hover:border-blue-500/60 transition-all group"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-blue-500/20 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
+                      <Users className="w-6 h-6 text-blue-500" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-white text-lg">Join Session</h4>
+                      <p className="text-sm text-gray-400">Enter a code to join an existing session</p>
+                    </div>
+                  </div>
+                </button>
+              </div>
+            )}
+
+            {/* Create Mode */}
+            {collabMode === 'create' && (
+              <div className="space-y-4">
+                <button
+                  onClick={() => setCollabMode(null)}
+                  className="text-gray-500 hover:text-white text-sm flex items-center gap-1"
+                >
+                  ← Back
+                </button>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                    Your Display Name
+                  </label>
+                  <input
+                    type="text"
+                    value={collabDisplayName}
+                    onChange={(e) => setCollabDisplayName(e.target.value)}
+                    placeholder={authUser?.email?.split('@')[0] || 'Loominary'}
+                    className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                <button
+                  onClick={() => createCollabSession()}
+                  disabled={collabLoading}
+                  className="w-full py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {collabLoading ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-5 h-5" />
+                      Create Session
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+
+            {/* Join Mode */}
+            {collabMode === 'join' && (
+              <div className="space-y-4">
+                <button
+                  onClick={() => setCollabMode(null)}
+                  className="text-gray-500 hover:text-white text-sm flex items-center gap-1"
+                >
+                  ← Back
+                </button>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                    Session Code
+                  </label>
+                  <input
+                    type="text"
+                    value={collabJoinCode}
+                    onChange={(e) => setCollabJoinCode(e.target.value.toUpperCase().slice(0, 6))}
+                    placeholder="ABC123"
+                    className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white text-center text-2xl font-mono tracking-widest placeholder-gray-500 focus:border-blue-500 focus:outline-none uppercase"
+                    maxLength={6}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                    Your Display Name
+                  </label>
+                  <input
+                    type="text"
+                    value={collabDisplayName}
+                    onChange={(e) => setCollabDisplayName(e.target.value)}
+                    placeholder={authUser?.email?.split('@')[0] || 'Loominary'}
+                    className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+
+                <button
+                  onClick={joinCollabSession}
+                  disabled={collabLoading || collabJoinCode.length !== 6}
+                  className="w-full py-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-bold rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {collabLoading ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Joining...
+                    </>
+                  ) : (
+                    <>
+                      <Users className="w-5 h-5" />
+                      Join Session
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

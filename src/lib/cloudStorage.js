@@ -429,6 +429,647 @@ class CloudStorageManager {
     console.log('[Cloud] Full sync complete');
   }
 
+  // ============================================
+  // STORY SHARING
+  // ============================================
+
+  /**
+   * Generate a unique 8-character share code
+   */
+  generateShareCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Avoid confusing chars like O/0, I/1
+    let code = '';
+    for (let i = 0; i < 8; i++) {
+      code += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return code;
+  }
+
+  /**
+   * Share a story publicly
+   * @param {string} localId - Local story ID
+   * @param {object} storyData - Story data to share
+   * @returns {Promise<{code: string, url: string} | null>}
+   */
+  async shareStory(localId, storyData) {
+    // Generate a share code
+    const shareCode = this.generateShareCode();
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+
+    try {
+      const { data, error } = await supabase
+        .from('loom_shared_stories')
+        .insert({
+          share_code: shareCode,
+          title: storyData.bible?.title || 'Untitled Story',
+          genre: storyData.bible?.genre || 'Unknown',
+          logline: storyData.bible?.logline || '',
+          author_name: storyData.authorName || 'Anonymous Loominary',
+          bible: storyData.bible,
+          generated_chapters: storyData.generatedChapters || [],
+          total_chapters: storyData.bible?.totalChapters || 10,
+          cover_gradient: storyData.coverGradient,
+          expires_at: expiresAt.toISOString(),
+          view_count: 0,
+          user_id: this.user?.id || null
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      const shareUrl = `${window.location.origin}/share/${shareCode}`;
+      console.log('[Cloud] Story shared:', shareCode);
+      return { code: shareCode, url: shareUrl, expiresAt };
+    } catch (error) {
+      console.error('[Cloud] Share story failed:', error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Load a shared story by its share code (public, no auth required)
+   * @param {string} shareCode - 8-character share code
+   */
+  async loadSharedStory(shareCode) {
+    try {
+      // Increment view count and get story
+      const { data, error } = await supabase
+        .from('loom_shared_stories')
+        .select('*')
+        .eq('share_code', shareCode.toUpperCase())
+        .single();
+
+      if (error) throw error;
+
+      // Check if expired
+      if (data.expires_at && new Date(data.expires_at) < new Date()) {
+        console.log('[Cloud] Shared story expired:', shareCode);
+        return null;
+      }
+
+      // Update view count in background
+      supabase
+        .from('loom_shared_stories')
+        .update({ view_count: (data.view_count || 0) + 1 })
+        .eq('share_code', shareCode.toUpperCase())
+        .then(() => {});
+
+      return data;
+    } catch (error) {
+      console.error('[Cloud] Load shared story failed:', error.message);
+      return null;
+    }
+  }
+
+  /**
+   * List stories shared by current user
+   */
+  async listMySharedStories() {
+    if (!this.canSync()) return [];
+
+    try {
+      const { data, error } = await supabase
+        .from('loom_shared_stories')
+        .select('share_code, title, genre, view_count, created_at, expires_at')
+        .eq('user_id', this.user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('[Cloud] List shared stories failed:', error.message);
+      return [];
+    }
+  }
+
+  /**
+   * Delete a shared story
+   */
+  async deleteSharedStory(shareCode) {
+    if (!this.canSync()) return false;
+
+    try {
+      const { error } = await supabase
+        .from('loom_shared_stories')
+        .delete()
+        .eq('share_code', shareCode)
+        .eq('user_id', this.user.id);
+
+      if (error) throw error;
+      console.log('[Cloud] Shared story deleted:', shareCode);
+      return true;
+    } catch (error) {
+      console.error('[Cloud] Delete shared story failed:', error.message);
+      return false;
+    }
+  }
+
+  // ============================================
+  // COLLABORATIVE STORIES
+  // ============================================
+
+  /**
+   * Generate a 6-character session code for collaboration
+   */
+  generateSessionCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let code = '';
+    for (let i = 0; i < 6; i++) {
+      code += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return code;
+  }
+
+  /**
+   * Create a new collaborative story session
+   * @param {object} options - Session options
+   * @returns {Promise<object|null>} - Session data or null
+   */
+  async createCollabSession(options = {}) {
+    if (!this.canSync()) {
+      console.error('[Collab] Must be signed in to create sessions');
+      return null;
+    }
+
+    const sessionCode = this.generateSessionCode();
+    const displayName = options.displayName || this.user.email?.split('@')[0] || 'Loominary';
+
+    try {
+      // Create the session
+      const { data: session, error: sessionError } = await supabase
+        .from('loom_collab_sessions')
+        .insert({
+          session_code: sessionCode,
+          host_id: this.user.id,
+          title: options.title || 'Collaborative Story',
+          genre: options.genre || null,
+          status: 'waiting', // waiting, active, paused, completed
+          settings: {
+            maxParticipants: options.maxParticipants || 4,
+            turnTimeLimit: options.turnTimeLimit || null, // minutes, null = no limit
+            allowSpectators: options.allowSpectators || false,
+            autoAdvanceTurn: options.autoAdvanceTurn || true
+          },
+          bible: options.bible || null,
+          generated_chapters: [],
+          current_turn_index: 0,
+          turn_order: [this.user.id]
+        })
+        .select()
+        .single();
+
+      if (sessionError) throw sessionError;
+
+      // Add host as first participant
+      const { error: participantError } = await supabase
+        .from('loom_collab_participants')
+        .insert({
+          session_id: session.id,
+          user_id: this.user.id,
+          display_name: displayName,
+          role: 'host',
+          status: 'active',
+          contributions_count: 0
+        });
+
+      if (participantError) throw participantError;
+
+      console.log('[Collab] Session created:', sessionCode);
+      return {
+        ...session,
+        isHost: true,
+        participants: [{
+          user_id: this.user.id,
+          display_name: displayName,
+          role: 'host',
+          status: 'active'
+        }]
+      };
+    } catch (error) {
+      console.error('[Collab] Create session failed:', error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Join an existing collaborative session
+   * @param {string} sessionCode - 6-character session code
+   * @param {string} displayName - Display name for participant
+   */
+  async joinCollabSession(sessionCode, displayName) {
+    if (!this.canSync()) {
+      console.error('[Collab] Must be signed in to join sessions');
+      return { error: 'Must be signed in' };
+    }
+
+    try {
+      // Find the session
+      const { data: session, error: findError } = await supabase
+        .from('loom_collab_sessions')
+        .select('*')
+        .eq('session_code', sessionCode.toUpperCase())
+        .single();
+
+      if (findError || !session) {
+        return { error: 'Session not found' };
+      }
+
+      if (session.status === 'completed') {
+        return { error: 'Session has ended' };
+      }
+
+      // Check if already a participant
+      const { data: existingParticipant } = await supabase
+        .from('loom_collab_participants')
+        .select('*')
+        .eq('session_id', session.id)
+        .eq('user_id', this.user.id)
+        .single();
+
+      if (existingParticipant) {
+        // Rejoin - update status
+        await supabase
+          .from('loom_collab_participants')
+          .update({ status: 'active', last_active_at: new Date().toISOString() })
+          .eq('id', existingParticipant.id);
+
+        return { session, isHost: session.host_id === this.user.id };
+      }
+
+      // Check participant limit
+      const { data: participants } = await supabase
+        .from('loom_collab_participants')
+        .select('*')
+        .eq('session_id', session.id)
+        .eq('status', 'active');
+
+      const maxParticipants = session.settings?.maxParticipants || 4;
+      if (participants && participants.length >= maxParticipants) {
+        return { error: 'Session is full' };
+      }
+
+      // Add as participant
+      const name = displayName || this.user.email?.split('@')[0] || 'Loominary';
+      const { error: joinError } = await supabase
+        .from('loom_collab_participants')
+        .insert({
+          session_id: session.id,
+          user_id: this.user.id,
+          display_name: name,
+          role: 'contributor',
+          status: 'active',
+          contributions_count: 0
+        });
+
+      if (joinError) throw joinError;
+
+      // Add to turn order
+      const newTurnOrder = [...(session.turn_order || []), this.user.id];
+      await supabase
+        .from('loom_collab_sessions')
+        .update({ turn_order: newTurnOrder })
+        .eq('id', session.id);
+
+      console.log('[Collab] Joined session:', sessionCode);
+      return { session: { ...session, turn_order: newTurnOrder }, isHost: false };
+    } catch (error) {
+      console.error('[Collab] Join session failed:', error.message);
+      return { error: error.message };
+    }
+  }
+
+  /**
+   * Get session details with participants
+   * @param {string} sessionId - Session UUID
+   */
+  async getCollabSession(sessionId) {
+    try {
+      const { data: session, error: sessionError } = await supabase
+        .from('loom_collab_sessions')
+        .select('*')
+        .eq('id', sessionId)
+        .single();
+
+      if (sessionError) throw sessionError;
+
+      const { data: participants, error: participantsError } = await supabase
+        .from('loom_collab_participants')
+        .select('*')
+        .eq('session_id', sessionId)
+        .order('joined_at', { ascending: true });
+
+      if (participantsError) throw participantsError;
+
+      const { data: contributions } = await supabase
+        .from('loom_collab_contributions')
+        .select('*')
+        .eq('session_id', sessionId)
+        .order('created_at', { ascending: true });
+
+      return {
+        ...session,
+        participants: participants || [],
+        contributions: contributions || [],
+        isHost: session.host_id === this.user?.id,
+        isMyTurn: session.turn_order?.[session.current_turn_index] === this.user?.id
+      };
+    } catch (error) {
+      console.error('[Collab] Get session failed:', error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Get session by code (for joining)
+   */
+  async getCollabSessionByCode(sessionCode) {
+    try {
+      const { data: session, error } = await supabase
+        .from('loom_collab_sessions')
+        .select('id, session_code, title, genre, status, settings, host_id')
+        .eq('session_code', sessionCode.toUpperCase())
+        .single();
+
+      if (error) return null;
+
+      // Get participant count
+      const { count } = await supabase
+        .from('loom_collab_participants')
+        .select('*', { count: 'exact', head: true })
+        .eq('session_id', session.id)
+        .eq('status', 'active');
+
+      return {
+        ...session,
+        participantCount: count || 0,
+        maxParticipants: session.settings?.maxParticipants || 4
+      };
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /**
+   * Submit a contribution (chapter content, choice, etc.)
+   */
+  async submitContribution(sessionId, content, contentType = 'chapter') {
+    if (!this.canSync()) return { error: 'Must be signed in' };
+
+    try {
+      // Get current session state
+      const session = await this.getCollabSession(sessionId);
+      if (!session) return { error: 'Session not found' };
+
+      // Verify it's this user's turn
+      if (!session.isMyTurn) {
+        return { error: "It's not your turn" };
+      }
+
+      // Add contribution
+      const { data: contribution, error: contribError } = await supabase
+        .from('loom_collab_contributions')
+        .insert({
+          session_id: sessionId,
+          user_id: this.user.id,
+          chapter_number: (session.generated_chapters?.length || 0) + 1,
+          content_type: contentType,
+          content: content
+        })
+        .select()
+        .single();
+
+      if (contribError) throw contribError;
+
+      // Update session: add to chapters and advance turn
+      const newChapters = [...(session.generated_chapters || []), content];
+      const nextTurnIndex = (session.current_turn_index + 1) % session.turn_order.length;
+
+      await supabase
+        .from('loom_collab_sessions')
+        .update({
+          generated_chapters: newChapters,
+          current_turn_index: nextTurnIndex,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', sessionId);
+
+      // Update participant's contribution count
+      await supabase
+        .from('loom_collab_participants')
+        .update({
+          contributions_count: (session.participants.find(p => p.user_id === this.user.id)?.contributions_count || 0) + 1,
+          last_active_at: new Date().toISOString()
+        })
+        .eq('session_id', sessionId)
+        .eq('user_id', this.user.id);
+
+      console.log('[Collab] Contribution submitted');
+      return { success: true, contribution };
+    } catch (error) {
+      console.error('[Collab] Submit contribution failed:', error.message);
+      return { error: error.message };
+    }
+  }
+
+  /**
+   * Update session status (host only)
+   */
+  async updateCollabSessionStatus(sessionId, status) {
+    if (!this.canSync()) return false;
+
+    try {
+      const { error } = await supabase
+        .from('loom_collab_sessions')
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq('id', sessionId)
+        .eq('host_id', this.user.id);
+
+      if (error) throw error;
+      console.log('[Collab] Session status updated:', status);
+      return true;
+    } catch (error) {
+      console.error('[Collab] Update status failed:', error.message);
+      return false;
+    }
+  }
+
+  /**
+   * Update session bible (host only)
+   */
+  async updateCollabSessionBible(sessionId, bible) {
+    if (!this.canSync()) return false;
+
+    try {
+      const { error } = await supabase
+        .from('loom_collab_sessions')
+        .update({ bible, updated_at: new Date().toISOString() })
+        .eq('id', sessionId)
+        .eq('host_id', this.user.id);
+
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error('[Collab] Update bible failed:', error.message);
+      return false;
+    }
+  }
+
+  /**
+   * Leave a collaborative session
+   */
+  async leaveCollabSession(sessionId) {
+    if (!this.canSync()) return false;
+
+    try {
+      await supabase
+        .from('loom_collab_participants')
+        .update({ status: 'left', last_active_at: new Date().toISOString() })
+        .eq('session_id', sessionId)
+        .eq('user_id', this.user.id);
+
+      // Remove from turn order
+      const { data: session } = await supabase
+        .from('loom_collab_sessions')
+        .select('turn_order, current_turn_index, host_id')
+        .eq('id', sessionId)
+        .single();
+
+      if (session) {
+        const newTurnOrder = session.turn_order.filter(id => id !== this.user.id);
+        let newTurnIndex = session.current_turn_index;
+
+        // Adjust turn index if needed
+        const myIndex = session.turn_order.indexOf(this.user.id);
+        if (myIndex < session.current_turn_index) {
+          newTurnIndex = Math.max(0, session.current_turn_index - 1);
+        } else if (myIndex === session.current_turn_index) {
+          newTurnIndex = newTurnIndex % Math.max(1, newTurnOrder.length);
+        }
+
+        await supabase
+          .from('loom_collab_sessions')
+          .update({ turn_order: newTurnOrder, current_turn_index: newTurnIndex })
+          .eq('id', sessionId);
+      }
+
+      console.log('[Collab] Left session');
+      return true;
+    } catch (error) {
+      console.error('[Collab] Leave session failed:', error.message);
+      return false;
+    }
+  }
+
+  /**
+   * List user's active collaborative sessions
+   */
+  async listMyCollabSessions() {
+    if (!this.canSync()) return [];
+
+    try {
+      // Get sessions where user is a participant
+      const { data: participations } = await supabase
+        .from('loom_collab_participants')
+        .select('session_id')
+        .eq('user_id', this.user.id)
+        .eq('status', 'active');
+
+      if (!participations || participations.length === 0) return [];
+
+      const sessionIds = participations.map(p => p.session_id);
+
+      const { data: sessions, error } = await supabase
+        .from('loom_collab_sessions')
+        .select('*')
+        .in('id', sessionIds)
+        .neq('status', 'completed')
+        .order('updated_at', { ascending: false });
+
+      if (error) throw error;
+
+      return (sessions || []).map(s => ({
+        ...s,
+        isHost: s.host_id === this.user.id
+      }));
+    } catch (error) {
+      console.error('[Collab] List sessions failed:', error.message);
+      return [];
+    }
+  }
+
+  /**
+   * Subscribe to real-time session updates
+   * @param {string} sessionId - Session UUID
+   * @param {function} onUpdate - Callback for updates
+   * @returns {function} - Unsubscribe function
+   */
+  subscribeToSession(sessionId, onUpdate) {
+    const channel = supabase
+      .channel(`collab_${sessionId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'loom_collab_sessions',
+          filter: `id=eq.${sessionId}`
+        },
+        (payload) => {
+          console.log('[Collab] Session update:', payload.eventType);
+          onUpdate({ type: 'session', data: payload.new });
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'loom_collab_participants',
+          filter: `session_id=eq.${sessionId}`
+        },
+        (payload) => {
+          console.log('[Collab] New participant:', payload.new.display_name);
+          onUpdate({ type: 'participant_joined', data: payload.new });
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'loom_collab_participants',
+          filter: `session_id=eq.${sessionId}`
+        },
+        (payload) => {
+          if (payload.new.status === 'left') {
+            onUpdate({ type: 'participant_left', data: payload.new });
+          } else {
+            onUpdate({ type: 'participant_update', data: payload.new });
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'loom_collab_contributions',
+          filter: `session_id=eq.${sessionId}`
+        },
+        (payload) => {
+          console.log('[Collab] New contribution');
+          onUpdate({ type: 'contribution', data: payload.new });
+        }
+      )
+      .subscribe();
+
+    // Return unsubscribe function
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }
+
   // Pull from cloud to local (for new device)
   async syncAllToLocal() {
     if (!this.canSync()) return;
