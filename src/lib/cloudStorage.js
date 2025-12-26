@@ -80,6 +80,24 @@ class CloudStorageManager {
     try {
       console.log('[Cloud] Saving story:', data.bible?.title, 'for user:', this.user.id);
 
+      // current_chapter in DB is INTEGER (the chapter number)
+      // data.currentChapter is the chapter OBJECT (with content, choices, etc.)
+      // data.bible.currentChapter is the chapter NUMBER
+      const chapterNumber = typeof data.currentChapter === 'number'
+        ? data.currentChapter
+        : data.bible?.currentChapter || 1;
+
+      // Store chapter data in generated_chapters array
+      let chapters = data.generatedChapters || [];
+      if (data.currentChapter && typeof data.currentChapter === 'object') {
+        // Add current chapter to array if not already there
+        const chapterIdx = chapterNumber - 1;
+        if (!chapters[chapterIdx]) {
+          chapters = [...chapters];
+          chapters[chapterIdx] = data.currentChapter;
+        }
+      }
+
       const { data: result, error } = await supabase
         .from('loom_stories')
         .upsert({
@@ -89,8 +107,8 @@ class CloudStorageManager {
           genre: data.bible?.genre || 'Unknown',
           logline: data.bible?.logline || '',
           bible: data.bible,
-          current_chapter: data.currentChapter,
-          generated_chapters: data.generatedChapters || [],
+          current_chapter: chapterNumber,
+          generated_chapters: chapters,
           cover_gradient: data.coverGradient,
           status: data.status || 'active',
           bookmarks: data.bookmarks || []
