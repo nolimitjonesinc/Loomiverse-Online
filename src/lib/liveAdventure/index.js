@@ -55,6 +55,10 @@ export * from './EmergentMoments.js';
 export * from './CharacterCrossTalk.js';
 export * from './BreathSystem.js';
 
+// Integration modules
+export * from './IntegratedAdventureEngine.js';
+export * from './SystemOrchestrator.js';
+
 // Import for internal use
 import {
   createAdventureState,
@@ -464,6 +468,10 @@ import { createEmergentSystem, MOMENT_TYPES, CONDITIONS, INTENSITY as MOMENT_INT
 import { createCrossTalkSystem, CROSSTALK_TYPES, DYNAMICS, TRIGGERS } from './CharacterCrossTalk.js';
 import { createBreathSystem, BREATH_TYPES, DURATIONS, SENSORY } from './BreathSystem.js';
 
+// Import integration modules for default export
+import { createIntegratedEngine } from './IntegratedAdventureEngine.js';
+import { createOrchestrator, PRIORITIES, ACTIONS } from './SystemOrchestrator.js';
+
 // Default export
 export default {
   // Core engine
@@ -522,5 +530,11 @@ export default {
   TRIGGERS,
   BREATH_TYPES,
   DURATIONS,
-  SENSORY
+  SENSORY,
+
+  // Integration
+  createIntegratedEngine,
+  createOrchestrator,
+  PRIORITIES,
+  ACTIONS
 };
