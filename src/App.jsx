@@ -1423,7 +1423,18 @@ class StorageManager {
 
   getUserProfile() {
     const d = localStorage.getItem(this.prefix + 'user_profile');
-    return d ? JSON.parse(d) : this.getDefaultProfile();
+    if (!d) return this.getDefaultProfile();
+
+    // Merge with defaults to ensure all fields exist (fixes old profiles)
+    const stored = JSON.parse(d);
+    const defaults = this.getDefaultProfile();
+    return {
+      ...defaults,
+      ...stored,
+      stats: { ...defaults.stats, ...stored.stats },
+      genreUsage: { ...defaults.genreUsage, ...stored.genreUsage },
+      preferences: { ...defaults.preferences, ...stored.preferences }
+    };
   }
 
   updateStat(statKey, value, operation = 'set') {
@@ -1440,6 +1451,10 @@ class StorageManager {
 
   trackGenreUsage(genre) {
     const profile = this.getUserProfile();
+    // Ensure genreUsage exists (might be missing from old profiles)
+    if (!profile.genreUsage) {
+      profile.genreUsage = {};
+    }
     profile.genreUsage[genre] = (profile.genreUsage[genre] || 0) + 1;
     this.saveUserProfile(profile);
   }
