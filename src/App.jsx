@@ -2558,10 +2558,20 @@ export default function Loomiverse() {
     setUserProfile(reconciledProfile);
 
     // Check for existing Supabase session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       setAuthUser(session?.user || null);
       if (session?.user) {
         console.log('[Auth] Logged in as:', session.user.email);
+        // Auto-sync from cloud on page load (for cross-device sync)
+        try {
+          await cloudStorage.syncAllToLocal();
+          setSavedStories(storage.listStories());
+          const chars = localStorage.getItem('loomiverse_characters');
+          if (chars) setAllCharacters(JSON.parse(chars));
+          console.log('[Auth] Auto-sync from cloud complete');
+        } catch (e) {
+          console.log('[Auth] Auto-sync skipped:', e.message);
+        }
       }
     });
 
@@ -2604,6 +2614,23 @@ export default function Loomiverse() {
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
+
+  // Background sync every 5 minutes (when logged in)
+  useEffect(() => {
+    if (!authUser) return;
+
+    const syncInterval = setInterval(async () => {
+      try {
+        // Push local changes to cloud
+        await cloudStorage.syncAllFromLocal();
+        console.log('[Sync] Background sync complete');
+      } catch (e) {
+        console.log('[Sync] Background sync skipped:', e.message);
+      }
+    }, 5 * 60 * 1000); // 5 minutes
+
+    return () => clearInterval(syncInterval);
+  }, [authUser]);
 
   // Auth handlers
   const handleSignUp = async (e) => {
