@@ -2616,20 +2616,49 @@ export default function Loomiverse() {
   }, []);
 
   // Background sync every 5 minutes (when logged in)
+  // IMPORTANT: This does BOTH push AND pull to keep devices in sync
   useEffect(() => {
     if (!authUser) return;
 
-    const syncInterval = setInterval(async () => {
+    const performSync = async () => {
       try {
-        // Push local changes to cloud
+        // First push local changes to cloud
         await cloudStorage.syncAllFromLocal();
-        console.log('[Sync] Background sync complete');
+        // Then pull any new stories from other devices
+        await cloudStorage.syncAllToLocal();
+        // Refresh the UI with any new stories
+        const refreshedStories = storage.listStories();
+        setSavedStories(refreshedStories);
+        // Also refresh characters
+        const chars = localStorage.getItem('loomiverse_characters');
+        if (chars) {
+          try {
+            setAllCharacters(JSON.parse(chars));
+          } catch (e) {}
+        }
+        console.log('[Sync] Sync complete - pushed and pulled');
       } catch (e) {
-        console.log('[Sync] Background sync skipped:', e.message);
+        console.log('[Sync] Sync skipped:', e.message);
       }
-    }, 5 * 60 * 1000); // 5 minutes
+    };
 
-    return () => clearInterval(syncInterval);
+    // Sync every 5 minutes
+    const syncInterval = setInterval(performSync, 5 * 60 * 1000);
+
+    // Also sync when user returns to the app (visibility change)
+    // This is critical for mobile where users switch between apps
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        console.log('[Sync] App became visible, syncing...');
+        performSync();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearInterval(syncInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [authUser]);
 
   // Auth handlers
