@@ -249,6 +249,113 @@ class CloudStorageManager {
     }
   }
 
+  /**
+   * Load characters for a specific story from cloud
+   * @param {string} storyId - Local story ID
+   * @returns {Promise<Array>} - Array of character data objects
+   */
+  async loadCharactersForStory(storyId) {
+    await this.ensureAuthReady();
+    if (!this.canSync()) return [];
+
+    try {
+      const { data, error } = await supabase
+        .from('loom_characters')
+        .select('*')
+        .eq('user_id', this.user.id)
+        .eq('local_story_id', storyId)
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+      console.log('[Cloud] Loaded', data?.length || 0, 'characters for story:', storyId);
+      return (data || []).map(c => c.data); // Return the character data, not the DB wrapper
+    } catch (error) {
+      console.error('[Cloud] Load story characters failed:', error.message);
+      return [];
+    }
+  }
+
+  /**
+   * Delete all characters associated with a story
+   * @param {string} storyId - Local story ID
+   * @returns {Promise<boolean>} - Success status
+   */
+  async deleteCharactersForStory(storyId) {
+    await this.ensureAuthReady();
+    if (!this.canSync()) {
+      this.queueSync('characters', 'delete_for_story', { storyId });
+      return false;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('loom_characters')
+        .delete()
+        .eq('user_id', this.user.id)
+        .eq('local_story_id', storyId);
+
+      if (error) throw error;
+      console.log('[Cloud] Characters deleted for story:', storyId);
+      return true;
+    } catch (error) {
+      console.error('[Cloud] Delete story characters failed:', error.message);
+      return false;
+    }
+  }
+
+  /**
+   * Delete a single character by ID
+   * @param {string} characterId - Character ID (from data.id)
+   * @returns {Promise<boolean>} - Success status
+   */
+  async deleteCharacter(characterId) {
+    await this.ensureAuthReady();
+    if (!this.canSync()) {
+      this.queueSync('character', 'delete', { characterId });
+      return false;
+    }
+
+    try {
+      // Match by the id field inside the data JSONB column
+      const { error } = await supabase
+        .from('loom_characters')
+        .delete()
+        .eq('user_id', this.user.id)
+        .filter('data->id', 'eq', characterId);
+
+      if (error) throw error;
+      console.log('[Cloud] Character deleted:', characterId);
+      return true;
+    } catch (error) {
+      console.error('[Cloud] Delete character failed:', error.message);
+      return false;
+    }
+  }
+
+  /**
+   * Count characters for a story (for delete confirmation)
+   * @param {string} storyId - Local story ID
+   * @returns {Promise<number>} - Character count
+   */
+  async countCharactersForStory(storyId) {
+    await this.ensureAuthReady();
+    if (!this.canSync()) return 0;
+
+    try {
+      const { count, error } = await supabase
+        .from('loom_characters')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', this.user.id)
+        .eq('local_story_id', storyId);
+
+      if (error) throw error;
+      return count || 0;
+    } catch (error) {
+      console.error('[Cloud] Count characters failed:', error.message);
+      return 0;
+    }
+  }
+
   // ============================================
   // PROFILE OPERATIONS
   // ============================================

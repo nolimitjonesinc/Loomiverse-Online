@@ -1331,6 +1331,28 @@ class StorageManager {
   deleteCharacter(id) {
     const chars = this.getCharacters().filter(c => c.id !== id);
     localStorage.setItem(this.prefix + 'characters', JSON.stringify(chars));
+
+    // Sync deletion to cloud
+    cloudStorage.deleteCharacter(id).catch(e => {
+      console.log('[Storage] Character cloud delete queued');
+    });
+  }
+
+  // Delete all characters for a story (called when story is deleted)
+  deleteCharactersForStory(storyId) {
+    // Remove from localStorage
+    const chars = this.getCharacters().filter(c => c.originStoryId !== storyId);
+    localStorage.setItem(this.prefix + 'characters', JSON.stringify(chars));
+
+    // Sync deletion to cloud
+    cloudStorage.deleteCharactersForStory(storyId).catch(e => {
+      console.log('[Storage] Story characters cloud delete queued');
+    });
+  }
+
+  // Get count of characters for a story
+  getCharacterCountForStory(storyId) {
+    return this.getCharacters().filter(c => c.originStoryId === storyId).length;
   }
 
   // Character Conversations - Persist chat history across sessions
@@ -2801,6 +2823,51 @@ export default function Loomiverse() {
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     setAuthUser(null);
+  };
+
+  // Delete story with character prompt
+  const handleDeleteStory = (storyId, storyTitle) => {
+    const characterCount = storage.getCharacterCountForStory(storyId);
+
+    if (characterCount > 0) {
+      // Story has characters - show special confirmation with options
+      setConfirmModal({
+        title: 'Delete Story',
+        message: `Are you sure you want to delete "${storyTitle}"?\n\nThis story has ${characterCount} character${characterCount > 1 ? 's' : ''} associated with it.`,
+        confirmText: 'Delete Story Only',
+        confirmStyle: 'danger',
+        onConfirm: () => {
+          // Delete story but keep characters
+          storage.deleteStory(storyId);
+          setSavedStories(storage.listStories());
+          setConfirmModal(null);
+        },
+        // Add extra action for deleting with characters
+        extraAction: {
+          text: 'Delete Story & Characters',
+          style: 'danger',
+          onClick: () => {
+            storage.deleteCharactersForStory(storyId);
+            storage.deleteStory(storyId);
+            setSavedStories(storage.listStories());
+            setCharacters(storage.getCharacters());
+            setConfirmModal(null);
+          }
+        }
+      });
+    } else {
+      // No characters - normal confirmation
+      setConfirmModal({
+        title: 'Delete Story',
+        message: `Are you sure you want to delete "${storyTitle}"? This cannot be undone.`,
+        confirmText: 'Delete',
+        confirmStyle: 'danger',
+        onConfirm: () => {
+          storage.deleteStory(storyId);
+          setSavedStories(storage.listStories());
+        }
+      });
+    }
   };
 
   // Click outside to close menus
@@ -5073,19 +5140,59 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
   const bulkDeleteStories = () => {
     if (selectedStories.size === 0) return;
 
-    setConfirmModal({
-      title: 'Delete Selected Stories',
-      message: `Are you sure you want to delete ${selectedStories.size} stor${selectedStories.size === 1 ? 'y' : 'ies'}? This cannot be undone.`,
-      confirmText: 'Delete All',
-      confirmStyle: 'danger',
-      onConfirm: () => {
-        selectedStories.forEach(id => storage.deleteStory(id));
-        setSavedStories(storage.listStories());
-        setSelectedStories(new Set());
-        setEditMode(false);
-        setConfirmModal(null);
-      }
+    // Count total characters across all selected stories
+    let totalCharacters = 0;
+    selectedStories.forEach(id => {
+      totalCharacters += storage.getCharacterCountForStory(id);
     });
+
+    const storyCount = selectedStories.size;
+    const storyText = storyCount === 1 ? 'story' : 'stories';
+
+    if (totalCharacters > 0) {
+      setConfirmModal({
+        title: 'Delete Selected Stories',
+        message: `Delete ${storyCount} ${storyText}?\n\nThese stories have ${totalCharacters} character${totalCharacters > 1 ? 's' : ''} in total.`,
+        confirmText: 'Delete Stories Only',
+        confirmStyle: 'danger',
+        onConfirm: () => {
+          selectedStories.forEach(id => storage.deleteStory(id));
+          setSavedStories(storage.listStories());
+          setSelectedStories(new Set());
+          setEditMode(false);
+          setConfirmModal(null);
+        },
+        extraAction: {
+          text: 'Delete Stories & Characters',
+          style: 'danger',
+          onClick: () => {
+            selectedStories.forEach(id => {
+              storage.deleteCharactersForStory(id);
+              storage.deleteStory(id);
+            });
+            setSavedStories(storage.listStories());
+            setCharacters(storage.getCharacters());
+            setSelectedStories(new Set());
+            setEditMode(false);
+            setConfirmModal(null);
+          }
+        }
+      });
+    } else {
+      setConfirmModal({
+        title: 'Delete Selected Stories',
+        message: `Are you sure you want to delete ${storyCount} ${storyText}? This cannot be undone.`,
+        confirmText: 'Delete All',
+        confirmStyle: 'danger',
+        onConfirm: () => {
+          selectedStories.forEach(id => storage.deleteStory(id));
+          setSavedStories(storage.listStories());
+          setSelectedStories(new Set());
+          setEditMode(false);
+          setConfirmModal(null);
+        }
+      });
+    }
   };
 
   // Edit Mode: Bulk archive selected stories
@@ -6997,16 +7104,42 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
                               </button>
                               <button
                                 onClick={() => {
-                                  setConfirmModal({
-                                    title: 'Delete Forever',
-                                    message: `Permanently delete "${story.title}"? This cannot be undone.`,
-                                    confirmText: 'Delete Forever',
-                                    confirmStyle: 'danger',
-                                    onConfirm: () => {
-                                      storage.deleteStory(story.id);
-                                      setArchivedStories(storage.listArchivedStories());
-                                    }
-                                  });
+                                  const characterCount = storage.getCharacterCountForStory(story.id);
+                                  if (characterCount > 0) {
+                                    setConfirmModal({
+                                      title: 'Delete Forever',
+                                      message: `Permanently delete "${story.title}"?\n\nThis story has ${characterCount} character${characterCount > 1 ? 's' : ''}.`,
+                                      confirmText: 'Delete Story Only',
+                                      confirmStyle: 'danger',
+                                      onConfirm: () => {
+                                        storage.deleteStory(story.id);
+                                        setArchivedStories(storage.listArchivedStories());
+                                        setConfirmModal(null);
+                                      },
+                                      extraAction: {
+                                        text: 'Delete Story & Characters',
+                                        style: 'danger',
+                                        onClick: () => {
+                                          storage.deleteCharactersForStory(story.id);
+                                          storage.deleteStory(story.id);
+                                          setArchivedStories(storage.listArchivedStories());
+                                          setCharacters(storage.getCharacters());
+                                          setConfirmModal(null);
+                                        }
+                                      }
+                                    });
+                                  } else {
+                                    setConfirmModal({
+                                      title: 'Delete Forever',
+                                      message: `Permanently delete "${story.title}"? This cannot be undone.`,
+                                      confirmText: 'Delete Forever',
+                                      confirmStyle: 'danger',
+                                      onConfirm: () => {
+                                        storage.deleteStory(story.id);
+                                        setArchivedStories(storage.listArchivedStories());
+                                      }
+                                    });
+                                  }
                                 }}
                                 className="px-4 py-2 border border-red-800 text-red-400 hover:bg-red-900 rounded text-sm"
                               >
@@ -7094,16 +7227,7 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
                                     <button
                                       onClick={() => {
                                         setShowStoryMenu(null);
-                                        setConfirmModal({
-                                          title: 'Delete Story',
-                                          message: `Are you sure you want to delete "${story.title}"? This cannot be undone.`,
-                                          confirmText: 'Delete',
-                                          confirmStyle: 'danger',
-                                          onConfirm: () => {
-                                            storage.deleteStory(story.id);
-                                            setSavedStories(storage.listStories());
-                                          }
-                                        });
+                                        handleDeleteStory(story.id, story.title);
                                       }}
                                       className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-red-900/50 transition-colors text-red-400"
                                     >
@@ -9255,27 +9379,38 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
           <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 max-w-md mx-4 shadow-2xl">
             <h3 className="text-xl font-bold text-white mb-2">{confirmModal.title}</h3>
-            <p className="text-gray-400 mb-6">{confirmModal.message}</p>
-            <div className="flex gap-3 justify-end">
-              <button
-                onClick={() => setConfirmModal(null)}
-                className="px-4 py-2 border border-gray-700 text-gray-400 hover:border-gray-500 hover:text-gray-300 rounded-lg transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  confirmModal.onConfirm();
-                  setConfirmModal(null);
-                }}
-                className={`px-4 py-2 rounded-lg font-bold transition-colors ${
-                  confirmModal.confirmStyle === 'danger'
-                    ? 'bg-red-600 hover:bg-red-500 text-white'
-                    : 'bg-amber-600 hover:bg-amber-500 text-gray-950'
-                }`}
-              >
-                {confirmModal.confirmText || 'Confirm'}
-              </button>
+            <p className="text-gray-400 mb-6 whitespace-pre-line">{confirmModal.message}</p>
+            <div className="flex flex-col gap-3">
+              {/* Extra action button (e.g., Delete Story & Characters) */}
+              {confirmModal.extraAction && (
+                <button
+                  onClick={confirmModal.extraAction.onClick}
+                  className="w-full px-4 py-2 bg-red-800 hover:bg-red-700 text-white rounded-lg font-bold transition-colors"
+                >
+                  {confirmModal.extraAction.text}
+                </button>
+              )}
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={() => setConfirmModal(null)}
+                  className="px-4 py-2 border border-gray-700 text-gray-400 hover:border-gray-500 hover:text-gray-300 rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    confirmModal.onConfirm();
+                    setConfirmModal(null);
+                  }}
+                  className={`px-4 py-2 rounded-lg font-bold transition-colors ${
+                    confirmModal.confirmStyle === 'danger'
+                      ? 'bg-red-600 hover:bg-red-500 text-white'
+                      : 'bg-amber-600 hover:bg-amber-500 text-gray-950'
+                  }`}
+                >
+                  {confirmModal.confirmText || 'Confirm'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
