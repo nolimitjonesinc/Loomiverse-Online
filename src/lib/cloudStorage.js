@@ -1070,6 +1070,394 @@ class CloudStorageManager {
     };
   }
 
+  // ============================================
+  // ENHANCED COLLAB: VOTING SYSTEM
+  // ============================================
+
+  /**
+   * Cast a vote for a story choice
+   */
+  async castVote(sessionId, chapterNumber, choiceIndex) {
+    if (!this.canSync()) return { error: 'Must be signed in' };
+
+    try {
+      // Upsert vote (allows changing vote)
+      const { data, error } = await supabase
+        .from('loom_collab_votes')
+        .upsert({
+          session_id: sessionId,
+          chapter_number: chapterNumber,
+          user_id: this.user.id,
+          choice_index: choiceIndex
+        }, {
+          onConflict: 'session_id,chapter_number,user_id'
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Also update the session's votes JSONB for quick access
+      const { data: session } = await supabase
+        .from('loom_collab_sessions')
+        .select('votes')
+        .eq('id', sessionId)
+        .single();
+
+      const votes = session?.votes || {};
+      votes[this.user.id] = choiceIndex;
+
+      await supabase
+        .from('loom_collab_sessions')
+        .update({ votes })
+        .eq('id', sessionId);
+
+      console.log('[Collab] Vote cast:', choiceIndex);
+      return { success: true, vote: data };
+    } catch (error) {
+      console.error('[Collab] Cast vote failed:', error.message);
+      return { error: error.message };
+    }
+  }
+
+  /**
+   * Get vote counts for current chapter
+   */
+  async getVoteCounts(sessionId, chapterNumber) {
+    try {
+      const { data, error } = await supabase
+        .from('loom_collab_votes')
+        .select('choice_index')
+        .eq('session_id', sessionId)
+        .eq('chapter_number', chapterNumber);
+
+      if (error) throw error;
+
+      // Count votes
+      const counts = { 0: 0, 1: 0, 2: 0 };
+      data?.forEach(v => {
+        counts[v.choice_index] = (counts[v.choice_index] || 0) + 1;
+      });
+
+      return counts;
+    } catch (error) {
+      console.error('[Collab] Get vote counts failed:', error.message);
+      return { 0: 0, 1: 0, 2: 0 };
+    }
+  }
+
+  /**
+   * Start voting on choices (host only)
+   */
+  async startVoting(sessionId, choices, timerSeconds = 60) {
+    if (!this.canSync()) return false;
+
+    try {
+      const deadline = timerSeconds
+        ? new Date(Date.now() + timerSeconds * 1000).toISOString()
+        : null;
+
+      const { error } = await supabase
+        .from('loom_collab_sessions')
+        .update({
+          current_choices: choices,
+          voting_active: true,
+          votes: {},
+          voting_deadline: deadline,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', sessionId)
+        .eq('host_id', this.user.id);
+
+      if (error) throw error;
+      console.log('[Collab] Voting started');
+      return true;
+    } catch (error) {
+      console.error('[Collab] Start voting failed:', error.message);
+      return false;
+    }
+  }
+
+  /**
+   * End voting and determine winner (host only)
+   */
+  async endVoting(sessionId) {
+    if (!this.canSync()) return { error: 'Must be signed in' };
+
+    try {
+      // Get session and votes
+      const session = await this.getCollabSession(sessionId);
+      if (!session) return { error: 'Session not found' };
+      if (!session.isHost) return { error: 'Only host can end voting' };
+
+      // Count votes
+      const voteCounts = await this.getVoteCounts(sessionId, session.current_chapter_number);
+
+      // Find winner (highest votes, tie goes to lower index)
+      let winnerIndex = 0;
+      let maxVotes = voteCounts[0] || 0;
+
+      for (let i = 1; i <= 2; i++) {
+        if ((voteCounts[i] || 0) > maxVotes) {
+          maxVotes = voteCounts[i];
+          winnerIndex = i;
+        }
+      }
+
+      // Update session
+      const { error } = await supabase
+        .from('loom_collab_sessions')
+        .update({
+          voting_active: false,
+          voting_deadline: null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', sessionId);
+
+      if (error) throw error;
+
+      return {
+        success: true,
+        winnerIndex,
+        winnerChoice: session.current_choices?.[winnerIndex],
+        voteCounts
+      };
+    } catch (error) {
+      console.error('[Collab] End voting failed:', error.message);
+      return { error: error.message };
+    }
+  }
+
+  /**
+   * Update current chapter content (host only, after AI generates)
+   */
+  async updateCollabChapter(sessionId, chapterNumber, content, choices) {
+    if (!this.canSync()) return false;
+
+    try {
+      const { error } = await supabase
+        .from('loom_collab_sessions')
+        .update({
+          current_chapter_number: chapterNumber,
+          current_chapter_content: content,
+          current_choices: choices,
+          voting_active: false,
+          votes: {},
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', sessionId)
+        .eq('host_id', this.user.id);
+
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error('[Collab] Update chapter failed:', error.message);
+      return false;
+    }
+  }
+
+  // ============================================
+  // ENHANCED COLLAB: LIVE CHAT
+  // ============================================
+
+  /**
+   * Send a chat message
+   */
+  async sendChatMessage(sessionId, message, messageType = 'chat', characterName = null) {
+    if (!this.canSync()) return { error: 'Must be signed in' };
+
+    try {
+      const displayName = this.user.email?.split('@')[0] || 'Loominary';
+
+      const { data, error } = await supabase
+        .from('loom_collab_chat')
+        .insert({
+          session_id: sessionId,
+          user_id: this.user.id,
+          display_name: displayName,
+          message,
+          message_type: messageType,
+          character_name: characterName
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      return { success: true, message: data };
+    } catch (error) {
+      console.error('[Collab] Send message failed:', error.message);
+      return { error: error.message };
+    }
+  }
+
+  /**
+   * Get recent chat messages
+   */
+  async getChatMessages(sessionId, limit = 50) {
+    try {
+      const { data, error } = await supabase
+        .from('loom_collab_chat')
+        .select('*')
+        .eq('session_id', sessionId)
+        .order('created_at', { ascending: true })
+        .limit(limit);
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('[Collab] Get messages failed:', error.message);
+      return [];
+    }
+  }
+
+  // ============================================
+  // ENHANCED COLLAB: CHARACTER CLAIMING
+  // ============================================
+
+  /**
+   * Claim a character to roleplay as
+   */
+  async claimCharacter(sessionId, characterId, characterName) {
+    if (!this.canSync()) return { error: 'Must be signed in' };
+
+    try {
+      // Update participant record
+      await supabase
+        .from('loom_collab_participants')
+        .update({
+          claimed_character_id: characterId,
+          claimed_character_name: characterName,
+          last_active_at: new Date().toISOString()
+        })
+        .eq('session_id', sessionId)
+        .eq('user_id', this.user.id);
+
+      // Also update session's claimed_characters for quick access
+      const { data: session } = await supabase
+        .from('loom_collab_sessions')
+        .select('claimed_characters')
+        .eq('id', sessionId)
+        .single();
+
+      const claimed = session?.claimed_characters || {};
+      claimed[this.user.id] = { characterId, characterName };
+
+      await supabase
+        .from('loom_collab_sessions')
+        .update({ claimed_characters: claimed })
+        .eq('id', sessionId);
+
+      console.log('[Collab] Character claimed:', characterName);
+      return { success: true };
+    } catch (error) {
+      console.error('[Collab] Claim character failed:', error.message);
+      return { error: error.message };
+    }
+  }
+
+  /**
+   * Release a claimed character
+   */
+  async releaseCharacter(sessionId) {
+    if (!this.canSync()) return false;
+
+    try {
+      await supabase
+        .from('loom_collab_participants')
+        .update({
+          claimed_character_id: null,
+          claimed_character_name: null
+        })
+        .eq('session_id', sessionId)
+        .eq('user_id', this.user.id);
+
+      // Update session's claimed_characters
+      const { data: session } = await supabase
+        .from('loom_collab_sessions')
+        .select('claimed_characters')
+        .eq('id', sessionId)
+        .single();
+
+      const claimed = session?.claimed_characters || {};
+      delete claimed[this.user.id];
+
+      await supabase
+        .from('loom_collab_sessions')
+        .update({ claimed_characters: claimed })
+        .eq('id', sessionId);
+
+      return true;
+    } catch (error) {
+      console.error('[Collab] Release character failed:', error.message);
+      return false;
+    }
+  }
+
+  /**
+   * Enhanced subscribe with chat and votes
+   */
+  subscribeToSessionEnhanced(sessionId, onUpdate) {
+    const channel = supabase
+      .channel(`collab_enhanced_${sessionId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'loom_collab_sessions',
+          filter: `id=eq.${sessionId}`
+        },
+        (payload) => {
+          console.log('[Collab] Session update:', payload.eventType);
+          onUpdate({ type: 'session', data: payload.new });
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'loom_collab_participants',
+          filter: `session_id=eq.${sessionId}`
+        },
+        (payload) => {
+          console.log('[Collab] Participant update');
+          onUpdate({ type: 'participant', data: payload.new, event: payload.eventType });
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'loom_collab_chat',
+          filter: `session_id=eq.${sessionId}`
+        },
+        (payload) => {
+          console.log('[Collab] New chat message');
+          onUpdate({ type: 'chat', data: payload.new });
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'loom_collab_votes',
+          filter: `session_id=eq.${sessionId}`
+        },
+        (payload) => {
+          console.log('[Collab] Vote update');
+          onUpdate({ type: 'vote', data: payload.new, event: payload.eventType });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }
+
   // Pull from cloud to local (for new device)
   async syncAllToLocal() {
     if (!this.canSync()) return;

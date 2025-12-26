@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Save, Library, Globe, Upload, BookOpen, X, Settings, User, Sparkles, Play, Pause, Volume2, VolumeX, ChevronRight, Heart, Brain, Home, Users, Zap, Pencil, Archive, Bookmark, FolderPlus, MoreVertical, Trash2, MessageCircle, Send, Cloud, CloudOff, LogIn, LogOut, Download, Check, Square, CheckSquare, Share2, Copy, Link, ExternalLink } from 'lucide-react';
+import { Save, Library, Globe, Upload, BookOpen, X, Settings, User, Sparkles, Play, Pause, Volume2, VolumeX, ChevronRight, Heart, Brain, Home, Users, Zap, Pencil, Archive, Bookmark, FolderPlus, MoreVertical, Trash2, MessageCircle, Send, Cloud, CloudOff, LogIn, LogOut, Download, Check, Square, CheckSquare, Share2, Copy, Link, ExternalLink, Clock } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 
 // Import author styles from iOS app (25+ writing styles)
@@ -2472,6 +2472,17 @@ export default function Loomiverse() {
   const [myCollabSessions, setMyCollabSessions] = useState([]);
   const collabUnsubscribeRef = useRef(null);
 
+  // Enhanced Collab: Voting, Chat, Characters
+  const [collabVotes, setCollabVotes] = useState({}); // { odId: choiceIndex }
+  const [myCollabVote, setMyCollabVote] = useState(null); // 0, 1, or 2
+  const [collabChat, setCollabChat] = useState([]); // Chat messages
+  const [collabChatInput, setCollabChatInput] = useState('');
+  const [collabVoteTimer, setCollabVoteTimer] = useState(null); // Seconds remaining
+  const [collabSelectedGenre, setCollabSelectedGenre] = useState(null);
+  const [collabGenerating, setCollabGenerating] = useState(false); // AI generating chapter
+  const collabChatEndRef = useRef(null);
+  const collabVoteTimerRef = useRef(null);
+
   // Initialize
   useEffect(() => {
     setCharacters(storage.getCharacters());
@@ -4377,6 +4388,242 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
     }
   };
 
+  /**
+   * Enhanced collab update handler with voting and chat
+   */
+  const handleEnhancedCollabUpdate = async (update) => {
+    console.log('[Collab Enhanced] Update:', update.type);
+
+    switch (update.type) {
+      case 'session':
+        setCollabSession(prev => prev ? { ...prev, ...update.data } : null);
+        if (update.data.votes) {
+          setCollabVotes(update.data.votes);
+        }
+        if (update.data.voting_active && update.data.voting_deadline) {
+          startVoteCountdown(new Date(update.data.voting_deadline));
+        }
+        break;
+
+      case 'participant':
+        await refreshCollabSession();
+        break;
+
+      case 'chat':
+        setCollabChat(prev => [...prev, update.data]);
+        setTimeout(() => {
+          collabChatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }, 100);
+        break;
+
+      case 'vote':
+        if (collabSession?.id) {
+          setCollabVotes(prev => ({
+            ...prev,
+            [update.data.user_id]: update.data.choice_index
+          }));
+        }
+        break;
+    }
+  };
+
+  /**
+   * Start vote countdown timer
+   */
+  const startVoteCountdown = (deadline) => {
+    if (collabVoteTimerRef.current) {
+      clearInterval(collabVoteTimerRef.current);
+    }
+
+    const updateTimer = () => {
+      const now = new Date();
+      const remaining = Math.max(0, Math.floor((deadline - now) / 1000));
+      setCollabVoteTimer(remaining);
+
+      if (remaining <= 0) {
+        clearInterval(collabVoteTimerRef.current);
+        collabVoteTimerRef.current = null;
+        if (collabSession?.isHost) {
+          finalizeCollabVote();
+        }
+      }
+    };
+
+    updateTimer();
+    collabVoteTimerRef.current = setInterval(updateTimer, 1000);
+  };
+
+  /**
+   * Cast a vote for a choice
+   */
+  const castCollabVote = async (choiceIndex) => {
+    if (!collabSession?.id) return;
+    setMyCollabVote(choiceIndex);
+    await cloudStorage.castVote(
+      collabSession.id,
+      collabSession.current_chapter_number || 1,
+      choiceIndex
+    );
+  };
+
+  /**
+   * Send a chat message in collaborative session
+   */
+  const sendCollabChatMessage = async () => {
+    if (!collabSession?.id || !collabChatInput.trim()) return;
+    const message = collabChatInput.trim();
+    setCollabChatInput('');
+    await cloudStorage.sendChatMessage(collabSession.id, message);
+  };
+
+  /**
+   * Generate first chapter for collaborative story (host only)
+   */
+  const generateCollabFirstChapter = async () => {
+    if (!collabSession?.isHost || !collabSelectedGenre) return;
+
+    setCollabGenerating(true);
+    setCollabError('');
+
+    try {
+      const apiKey = openaiKey || storage.getApiKey('openai');
+      if (!apiKey) throw new Error('No API key configured');
+
+      // Generate premise
+      const premiseResp = await fetch('/api/openai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [{ role: 'user', content: `Create a ${collabSelectedGenre} story premise with title, logline, 3 characters, and setting. Format as JSON: {"title":"...","logline":"...","characters":[{"name":"...","role":"..."}],"setting":"..."}` }],
+          temperature: 0.9
+        })
+      });
+
+      const premiseData = await premiseResp.json();
+      const premiseText = premiseData.choices?.[0]?.message?.content || '';
+      let premise;
+      try {
+        const jsonMatch = premiseText.match(/\{[\s\S]*\}/);
+        premise = JSON.parse(jsonMatch?.[0] || '{}');
+      } catch { premise = { title: 'Collaborative Story', characters: [] }; }
+
+      // Generate first chapter
+      const chapterResp = await fetch('/api/openai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [{ role: 'user', content: `Write Chapter 1 of "${premise.title}", a ${collabSelectedGenre} story. Setting: ${premise.setting}. Write 300-400 words ending with a decision point, then 3 choices.\n\nFormat:\n[CHAPTER]\nText...\n\n[CHOICES]\nA) Choice 1\nB) Choice 2\nC) Choice 3` }],
+          temperature: 0.85
+        })
+      });
+
+      const chapterData = await chapterResp.json();
+      const chapterText = chapterData.choices?.[0]?.message?.content || '';
+
+      const chapterMatch = chapterText.match(/\[CHAPTER\]([\s\S]*?)\[CHOICES\]/i);
+      const choicesMatch = chapterText.match(/\[CHOICES\]([\s\S]*)/i);
+      const content = chapterMatch?.[1]?.trim() || chapterText;
+      const choicesText = choicesMatch?.[1]?.trim() || '';
+
+      const choices = [];
+      const choiceRegex = /([ABC])\)\s*(.+?)(?=\n[ABC]\)|$)/gs;
+      let match;
+      while ((match = choiceRegex.exec(choicesText)) !== null) choices.push(match[2].trim());
+      while (choices.length < 3) choices.push('Continue the story');
+
+      // Update session
+      await supabase.from('loom_collab_sessions').update({
+        title: premise.title || 'Collaborative Story',
+        genre: collabSelectedGenre,
+        bible: { ...premise, genre: collabSelectedGenre },
+        current_chapter_number: 1,
+        current_chapter_content: content,
+        current_choices: choices,
+        voting_active: true,
+        votes: {},
+        voting_deadline: new Date(Date.now() + 60000).toISOString(),
+        status: 'active'
+      }).eq('id', collabSession.id);
+
+      await refreshCollabSession();
+      setScreen('collab-story');
+      startVoteCountdown(new Date(Date.now() + 60000));
+
+      const messages = await cloudStorage.getChatMessages(collabSession.id);
+      setCollabChat(messages);
+
+      if (collabUnsubscribeRef.current) collabUnsubscribeRef.current();
+      collabUnsubscribeRef.current = cloudStorage.subscribeToSessionEnhanced(collabSession.id, handleEnhancedCollabUpdate);
+
+    } catch (error) {
+      setCollabError(error.message || 'Failed to generate story');
+    } finally {
+      setCollabGenerating(false);
+    }
+  };
+
+  /**
+   * Finalize voting and generate next chapter (host only)
+   */
+  const finalizeCollabVote = async () => {
+    if (!collabSession?.isHost) return;
+
+    setCollabGenerating(true);
+    try {
+      const result = await cloudStorage.endVoting(collabSession.id);
+      if (result.error) throw new Error(result.error);
+
+      const winningChoice = collabSession.current_choices?.[result.winnerIndex];
+      await cloudStorage.sendChatMessage(collabSession.id, `Vote complete! Chose: "${winningChoice}"`, 'system');
+
+      const nextChapter = (collabSession.current_chapter_number || 1) + 1;
+
+      const resp = await fetch('/api/openai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [{ role: 'user', content: `Continue "${collabSession.title}" (${collabSession.genre}). Previous: ${collabSession.current_chapter_content?.slice(0, 500)}... Choice made: "${winningChoice}". Write Chapter ${nextChapter} (300-400 words) with 3 new choices.\n\nFormat:\n[CHAPTER]\nText...\n\n[CHOICES]\nA) Choice 1\nB) Choice 2\nC) Choice 3` }],
+          temperature: 0.85
+        })
+      });
+
+      const data = await resp.json();
+      const text = data.choices?.[0]?.message?.content || '';
+
+      const chapterMatch = text.match(/\[CHAPTER\]([\s\S]*?)\[CHOICES\]/i);
+      const choicesMatch = text.match(/\[CHOICES\]([\s\S]*)/i);
+      const content = chapterMatch?.[1]?.trim() || text;
+
+      const choices = [];
+      const choiceRegex = /([ABC])\)\s*(.+?)(?=\n[ABC]\)|$)/gs;
+      let match;
+      while ((match = choiceRegex.exec(choicesMatch?.[1] || '')) !== null) choices.push(match[2].trim());
+      while (choices.length < 3) choices.push('Continue');
+
+      await supabase.from('loom_collab_sessions').update({
+        current_chapter_number: nextChapter,
+        current_chapter_content: content,
+        current_choices: choices,
+        voting_active: true,
+        votes: {},
+        voting_deadline: new Date(Date.now() + 60000).toISOString()
+      }).eq('id', collabSession.id);
+
+      setMyCollabVote(null);
+      setCollabVotes({});
+      startVoteCountdown(new Date(Date.now() + 60000));
+      await refreshCollabSession();
+
+    } catch (error) {
+      console.error('[Collab] Finalize error:', error);
+    } finally {
+      setCollabGenerating(false);
+    }
+  };
+
   // Load story from storage
   const loadStory = (id) => {
     const data = storage.loadStory(id);
@@ -6209,136 +6456,119 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
         </div>
       )}
 
-      {/* COLLABORATIVE STORY LOBBY */}
+      {/* COLLABORATIVE STORY LOBBY - Enhanced with Genre Selection */}
       {screen === 'collab-lobby' && collabSession && (
         <div className="relative z-10 min-h-screen p-8">
-          <div className="max-w-2xl mx-auto">
+          <div className="max-w-3xl mx-auto">
             {/* Header */}
-            <div className="flex justify-between items-start mb-8">
+            <div className="flex justify-between items-start mb-6">
               <div>
-                <h1 className="text-3xl font-bold text-white mb-2">
-                  {collabSession.title || 'Collaborative Story'}
-                </h1>
+                <h1 className="text-3xl font-bold text-white mb-2">Collaborative Story</h1>
                 <div className="flex items-center gap-4">
-                  <span className="text-gray-400">Session Code:</span>
-                  <button
-                    onClick={copyCollabCode}
-                    className="font-mono text-2xl font-bold text-emerald-400 hover:text-emerald-300 transition-colors flex items-center gap-2"
-                  >
+                  <span className="text-gray-400">Invite Code:</span>
+                  <button onClick={copyCollabCode} className="font-mono text-2xl font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-2">
                     {collabSession.session_code}
                     <Copy className="w-4 h-4" />
                   </button>
                 </div>
               </div>
-              <button
-                onClick={leaveCollabSession}
-                className="text-gray-500 hover:text-red-400 transition-colors"
-              >
-                Leave Session
-              </button>
+              <button onClick={leaveCollabSession} className="text-gray-500 hover:text-red-400">Leave</button>
             </div>
 
-            {/* Status Banner */}
-            <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl mb-8 text-center">
-              <p className="text-amber-400 font-bold">Waiting for Loominaries to join...</p>
-              <p className="text-sm text-gray-400 mt-1">Share the code above with friends to invite them</p>
-            </div>
+            {/* Error */}
+            {collabError && (
+              <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm mb-6">{collabError}</div>
+            )}
 
-            {/* Participants */}
-            <div className="mb-8">
-              <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                <Users className="w-5 h-5 text-emerald-500" />
-                Participants ({collabSession.participants?.filter(p => p.status === 'active').length || 0}/{collabSession.settings?.maxParticipants || 4})
-              </h3>
-              <div className="space-y-2">
-                {collabSession.participants?.filter(p => p.status === 'active').map((participant, idx) => (
-                  <div
-                    key={participant.user_id || idx}
-                    className={`p-4 rounded-lg border flex items-center justify-between ${
-                      participant.role === 'host'
-                        ? 'bg-emerald-500/10 border-emerald-500/30'
-                        : 'bg-gray-800/50 border-gray-700'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold ${
-                        participant.role === 'host' ? 'bg-emerald-500 text-white' : 'bg-gray-700 text-gray-300'
-                      }`}>
-                        {participant.display_name?.charAt(0)?.toUpperCase() || '?'}
+            <div className="grid md:grid-cols-2 gap-6">
+              {/* Left: Participants */}
+              <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-5">
+                <h3 className="font-bold text-white mb-4 flex items-center gap-2">
+                  <Users className="w-5 h-5 text-emerald-500" />
+                  Loominaries ({collabSession.participants?.filter(p => p.status === 'active').length || 0}/{collabSession.settings?.maxParticipants || 4})
+                </h3>
+                <div className="space-y-2">
+                  {collabSession.participants?.filter(p => p.status === 'active').map((p, idx) => (
+                    <div key={p.user_id || idx} className={`p-3 rounded-lg flex items-center gap-3 ${p.role === 'host' ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-gray-800/50'}`}>
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${p.role === 'host' ? 'bg-emerald-500 text-white' : 'bg-gray-700'}`}>
+                        {p.display_name?.charAt(0)?.toUpperCase()}
                       </div>
-                      <div>
-                        <p className="font-bold text-white">{participant.display_name}</p>
-                        <p className="text-xs text-gray-500">
-                          {participant.role === 'host' ? 'Host' : 'Contributor'}
-                        </p>
+                      <div className="flex-1">
+                        <p className="font-medium text-white text-sm">{p.display_name}</p>
+                        <p className="text-xs text-gray-500">{p.role === 'host' ? 'Host' : 'Player'}</p>
                       </div>
+                      {p.user_id === authUser?.id && <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded">You</span>}
                     </div>
-                    {participant.user_id === authUser?.id && (
-                      <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-1 rounded">You</span>
-                    )}
-                  </div>
-                ))}
+                  ))}
+                </div>
+                <p className="text-xs text-gray-500 mt-4 text-center">Share the code to invite more Loominaries!</p>
               </div>
-            </div>
 
-            {/* Start Button (Host Only) */}
-            {collabSession.isHost && (
-              <button
-                onClick={startCollabStory}
-                disabled={collabLoading || (collabSession.participants?.filter(p => p.status === 'active').length || 0) < 1}
-                className="w-full py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-lg rounded-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all"
-              >
-                {collabLoading ? (
+              {/* Right: Genre Selection (Host Only) or Waiting */}
+              <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-5">
+                {collabSession.isHost ? (
                   <>
-                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Starting...
+                    <h3 className="font-bold text-white mb-4">Choose Genre</h3>
+                    <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto">
+                      {['Fantasy', 'Sci-Fi', 'Mystery', 'Romance', 'Horror', 'Thriller', 'Adventure', 'Comedy'].map(genre => (
+                        <button
+                          key={genre}
+                          onClick={() => setCollabSelectedGenre(genre)}
+                          className={`p-3 rounded-lg text-sm font-medium transition-all ${
+                            collabSelectedGenre === genre
+                              ? 'bg-emerald-500 text-white'
+                              : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                          }`}
+                        >
+                          {genre}
+                        </button>
+                      ))}
+                    </div>
+
+                    <button
+                      onClick={generateCollabFirstChapter}
+                      disabled={!collabSelectedGenre || collabGenerating}
+                      className="w-full mt-4 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-lg disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      {collabGenerating ? (
+                        <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Generating Story...</>
+                      ) : (
+                        <><Play className="w-4 h-4" /> Start Story</>
+                      )}
+                    </button>
                   </>
                 ) : (
-                  <>
-                    <Play className="w-5 h-5" />
-                    Start the Story
-                  </>
+                  <div className="text-center py-8">
+                    <div className="w-12 h-12 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                    <p className="text-gray-400">Waiting for host to start...</p>
+                    <p className="text-sm text-gray-500 mt-2">The host is choosing a genre</p>
+                  </div>
                 )}
-              </button>
-            )}
-
-            {!collabSession.isHost && (
-              <div className="text-center text-gray-500">
-                <p>Waiting for the host to start the story...</p>
               </div>
-            )}
+            </div>
 
-            {/* Refresh Button */}
-            <button
-              onClick={refreshCollabSession}
-              className="w-full mt-4 py-3 border border-gray-700 text-gray-400 hover:text-white hover:border-gray-600 rounded-lg transition-colors"
-            >
+            <button onClick={refreshCollabSession} className="w-full mt-4 py-2 border border-gray-700 text-gray-500 hover:text-white rounded-lg text-sm">
               Refresh
             </button>
           </div>
         </div>
       )}
 
-      {/* COLLABORATIVE STORY - ACTIVE SESSION */}
+      {/* COLLABORATIVE STORY - ACTIVE SESSION (Voting-Based) */}
       {screen === 'collab-story' && collabSession && (
-        <div className="relative z-10 min-h-screen p-8">
-          <div className="max-w-4xl mx-auto">
+        <div className="relative z-10 min-h-screen flex">
+          {/* Main Story Area */}
+          <div className="flex-1 p-6 overflow-y-auto">
             {/* Header */}
-            <div className="flex justify-between items-center mb-6">
+            <div className="flex justify-between items-center mb-4">
               <div>
-                <h1 className="text-2xl font-bold text-white">{collabSession.title}</h1>
+                <h1 className="text-xl font-bold text-white">{collabSession.title}</h1>
                 <p className="text-sm text-gray-500">
-                  {collabSession.genre || 'Collaborative Story'} • Session: {collabSession.session_code}
+                  {collabSession.genre || 'Collaborative Story'} • Chapter {(collabSession.current_chapter_number || 0) + 1}
                 </p>
               </div>
               <div className="flex items-center gap-3">
-                <button
-                  onClick={refreshCollabSession}
-                  className="p-2 text-gray-500 hover:text-white transition-colors"
-                  title="Refresh"
-                >
-                  ↻
-                </button>
+                <span className="text-xs text-gray-600 font-mono">{collabSession.session_code}</span>
                 <button
                   onClick={leaveCollabSession}
                   className="text-sm text-gray-500 hover:text-red-400 transition-colors"
@@ -6348,130 +6578,248 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
               </div>
             </div>
 
-            {/* Turn Indicator */}
-            <div className={`p-4 rounded-xl mb-6 text-center ${
-              collabSession.isMyTurn
-                ? 'bg-emerald-500/20 border border-emerald-500/50'
-                : 'bg-gray-800/50 border border-gray-700'
-            }`}>
-              {collabSession.isMyTurn ? (
-                <>
-                  <p className="text-emerald-400 font-bold text-lg">It's Your Turn!</p>
-                  <p className="text-sm text-gray-400">Write the next part of the story below</p>
-                </>
-              ) : (
-                <>
-                  <p className="text-gray-400 font-bold">
-                    Waiting for {
-                      collabSession.participants?.find(p =>
-                        p.user_id === collabSession.turn_order?.[collabSession.current_turn_index]
-                      )?.display_name || 'another Loominary'
-                    }...
-                  </p>
-                  <p className="text-sm text-gray-500">They're writing the next part</p>
-                </>
-              )}
-            </div>
-
-            {/* Participants Bar */}
-            <div className="flex items-center gap-2 mb-6 pb-4 border-b border-gray-800 overflow-x-auto">
-              {collabSession.turn_order?.map((userId, idx) => {
-                const participant = collabSession.participants?.find(p => p.user_id === userId);
-                const isCurrent = idx === collabSession.current_turn_index;
+            {/* Participants with Vote Status */}
+            <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-800 overflow-x-auto">
+              {collabSession.participants?.filter(p => p.status === 'active').map((participant) => {
+                const hasVoted = collabVotes[participant.user_id] !== undefined;
                 return (
                   <div
-                    key={userId}
-                    className={`flex-shrink-0 flex items-center gap-2 px-3 py-2 rounded-full transition-all ${
-                      isCurrent
+                    key={participant.user_id}
+                    className={`flex-shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-full ${
+                      hasVoted
                         ? 'bg-emerald-500/20 border border-emerald-500/50'
                         : 'bg-gray-800/50 border border-gray-700'
                     }`}
                   >
-                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
-                      isCurrent ? 'bg-emerald-500 text-white' : 'bg-gray-700 text-gray-400'
+                    <div className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${
+                      hasVoted ? 'bg-emerald-500 text-white' : 'bg-gray-700 text-gray-400'
                     }`}>
-                      {participant?.display_name?.charAt(0)?.toUpperCase() || '?'}
+                      {participant.display_name?.charAt(0)?.toUpperCase() || '?'}
                     </div>
-                    <span className={`text-sm ${isCurrent ? 'text-emerald-400' : 'text-gray-500'}`}>
-                      {participant?.display_name || 'Unknown'}
-                      {participant?.user_id === authUser?.id && ' (You)'}
+                    <span className={`text-xs ${hasVoted ? 'text-emerald-400' : 'text-gray-500'}`}>
+                      {participant.display_name}
+                      {participant.user_id === authUser?.id && ' (You)'}
                     </span>
-                    {isCurrent && <span className="text-emerald-500">✍️</span>}
+                    {hasVoted && <span className="text-emerald-400 text-xs">✓</span>}
                   </div>
                 );
               })}
             </div>
 
             {/* Story Content */}
-            <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-6 mb-6 max-h-[40vh] overflow-y-auto">
-              {(!collabSession.generated_chapters || collabSession.generated_chapters.length === 0) ? (
-                <p className="text-gray-500 italic text-center py-8">
-                  The story hasn't begun yet. {collabSession.isMyTurn ? 'Start writing below!' : 'Waiting for the first contribution...'}
-                </p>
+            <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-6 mb-6">
+              {collabSession.current_chapter_content ? (
+                <div className="prose prose-invert max-w-none">
+                  <p className="text-gray-300 whitespace-pre-wrap leading-relaxed text-lg">
+                    {collabSession.current_chapter_content}
+                  </p>
+                </div>
+              ) : collabGenerating ? (
+                <div className="text-center py-12">
+                  <div className="w-12 h-12 border-3 border-amber-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                  <p className="text-amber-400 font-medium">The Loom is weaving your story...</p>
+                  <p className="text-gray-500 text-sm mt-2">AI is generating Chapter 1</p>
+                </div>
               ) : (
-                <div className="space-y-6">
-                  {collabSession.generated_chapters.map((chapter, idx) => {
-                    const contribution = collabSession.contributions?.[idx];
-                    const author = collabSession.participants?.find(p => p.user_id === contribution?.user_id);
-                    return (
-                      <div key={idx} className="border-b border-gray-800 pb-4 last:border-0">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xs text-gray-500">Part {idx + 1}</span>
-                          {author && (
-                            <span className="text-xs text-emerald-500">by {author.display_name}</span>
-                          )}
-                        </div>
-                        <p className="text-gray-300 whitespace-pre-wrap">{chapter}</p>
-                      </div>
-                    );
-                  })}
+                <div className="text-center py-12">
+                  <p className="text-gray-500 mb-4">The story awaits its first chapter...</p>
+                  {collabSession.host_id === authUser?.id && collabSession.genre && (
+                    <button
+                      onClick={generateCollabFirstChapter}
+                      className="px-6 py-3 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white font-bold rounded-xl transition-all"
+                    >
+                      Begin the Story
+                    </button>
+                  )}
                 </div>
               )}
             </div>
 
-            {/* Contribution Input (only when it's your turn) */}
-            {collabSession.isMyTurn && (
+            {/* Voting Section */}
+            {collabSession.voting_active && collabSession.current_choices && (
               <div className="space-y-4">
-                <textarea
-                  value={interactiveInput}
-                  onChange={(e) => setInteractiveInput(e.target.value)}
-                  placeholder="Continue the story... What happens next?"
-                  className="w-full h-40 px-4 py-3 bg-gray-800 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:border-emerald-500 focus:outline-none resize-none"
-                />
-                <button
-                  onClick={async () => {
-                    if (!interactiveInput.trim()) return;
-                    setInteractiveLoading(true);
-                    const result = await cloudStorage.submitContribution(collabSession.id, interactiveInput.trim());
-                    setInteractiveLoading(false);
-                    if (result.success) {
-                      setInteractiveInput('');
-                      await refreshCollabSession();
-                    } else if (result.error) {
-                      alert(result.error);
-                    }
-                  }}
-                  disabled={interactiveLoading || !interactiveInput.trim()}
-                  className="w-full py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  {interactiveLoading ? (
-                    <>
-                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      Submitting...
-                    </>
-                  ) : (
-                    <>
-                      <Send className="w-5 h-5" />
-                      Submit Your Contribution
-                    </>
-                  )}
-                </button>
+                {/* Vote Timer */}
+                {collabVoteTimer !== null && (
+                  <div className="text-center mb-4">
+                    <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full ${
+                      collabVoteTimer <= 10 ? 'bg-red-500/20 border border-red-500/50' : 'bg-amber-500/20 border border-amber-500/50'
+                    }`}>
+                      <Clock className="w-4 h-4" />
+                      <span className={`font-mono font-bold ${collabVoteTimer <= 10 ? 'text-red-400' : 'text-amber-400'}`}>
+                        {Math.floor(collabVoteTimer / 60)}:{(collabVoteTimer % 60).toString().padStart(2, '0')}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                <h3 className="text-lg font-bold text-white text-center">What happens next?</h3>
+
+                {/* Choice Buttons */}
+                <div className="space-y-3">
+                  {collabSession.current_choices.map((choice, idx) => {
+                    const voteCount = Object.values(collabVotes).filter(v => v === idx).length;
+                    const totalVotes = Object.keys(collabVotes).length;
+                    const percentage = totalVotes > 0 ? Math.round((voteCount / totalVotes) * 100) : 0;
+                    const isMyVote = myCollabVote === idx;
+
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => castCollabVote(idx)}
+                        className={`w-full p-4 rounded-xl text-left transition-all relative overflow-hidden ${
+                          isMyVote
+                            ? 'bg-emerald-500/20 border-2 border-emerald-500'
+                            : 'bg-gray-800/50 border border-gray-700 hover:border-gray-600'
+                        }`}
+                      >
+                        {/* Vote percentage background */}
+                        <div
+                          className={`absolute inset-0 ${isMyVote ? 'bg-emerald-500/10' : 'bg-gray-700/30'}`}
+                          style={{ width: `${percentage}%` }}
+                        />
+
+                        <div className="relative flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <span className={`w-8 h-8 rounded-full flex items-center justify-center font-bold ${
+                              isMyVote ? 'bg-emerald-500 text-white' : 'bg-gray-700 text-gray-400'
+                            }`}>
+                              {String.fromCharCode(65 + idx)}
+                            </span>
+                            <span className={`${isMyVote ? 'text-emerald-300' : 'text-gray-300'}`}>
+                              {choice.text || choice}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-sm ${isMyVote ? 'text-emerald-400' : 'text-gray-500'}`}>
+                              {voteCount} vote{voteCount !== 1 ? 's' : ''}
+                            </span>
+                            {totalVotes > 0 && (
+                              <span className="text-xs text-gray-600">({percentage}%)</span>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Host: Finalize Voting */}
+                {collabSession.host_id === authUser?.id && Object.keys(collabVotes).length > 0 && (
+                  <button
+                    onClick={finalizeCollabVote}
+                    disabled={collabGenerating}
+                    className="w-full mt-4 py-3 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white font-bold rounded-xl disabled:opacity-50"
+                  >
+                    {collabGenerating ? 'Generating Next Chapter...' : 'End Voting & Continue Story'}
+                  </button>
+                )}
               </div>
             )}
 
-            {/* Chapter Count */}
-            <div className="mt-6 text-center text-sm text-gray-500">
-              {collabSession.generated_chapters?.length || 0} parts written so far
+            {/* Waiting for votes to be processed */}
+            {!collabSession.voting_active && collabSession.current_chapter_content && !collabGenerating && (
+              <div className="text-center py-6">
+                {collabSession.host_id === authUser?.id ? (
+                  <button
+                    onClick={async () => {
+                      setCollabGenerating(true);
+                      // Generate next chapter here
+                      // For now just show generating state
+                    }}
+                    className="px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl"
+                  >
+                    Generate Next Chapter
+                  </button>
+                ) : (
+                  <p className="text-gray-500">Waiting for the host to continue the story...</p>
+                )}
+              </div>
+            )}
+
+            {/* Chapter History */}
+            {collabSession.generated_chapters && collabSession.generated_chapters.length > 0 && (
+              <div className="mt-6 pt-4 border-t border-gray-800">
+                <details className="group">
+                  <summary className="text-sm text-gray-500 cursor-pointer hover:text-gray-400">
+                    Previous Chapters ({collabSession.generated_chapters.length})
+                  </summary>
+                  <div className="mt-4 space-y-4">
+                    {collabSession.generated_chapters.map((chapter, idx) => (
+                      <div key={idx} className="p-4 bg-gray-800/30 rounded-lg">
+                        <div className="text-xs text-gray-600 mb-2">Chapter {idx + 1}</div>
+                        <p className="text-gray-400 text-sm whitespace-pre-wrap">
+                          {typeof chapter === 'string' ? chapter : chapter.content}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              </div>
+            )}
+          </div>
+
+          {/* Chat Sidebar */}
+          <div className="w-80 border-l border-gray-800 flex flex-col bg-gray-900/50">
+            {/* Chat Header */}
+            <div className="p-4 border-b border-gray-800">
+              <h3 className="font-bold text-white flex items-center gap-2">
+                <MessageCircle className="w-4 h-4" />
+                Live Chat
+              </h3>
+              <p className="text-xs text-gray-500">{collabSession.participants?.filter(p => p.status === 'active').length || 0} Loominaries connected</p>
+            </div>
+
+            {/* Chat Messages */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {collabChat.length === 0 ? (
+                <p className="text-gray-600 text-sm text-center py-8">No messages yet. Say hello!</p>
+              ) : (
+                collabChat.map((msg, idx) => (
+                  <div key={msg.id || idx} className={`${
+                    msg.message_type === 'system' ? 'text-center' : ''
+                  }`}>
+                    {msg.message_type === 'system' ? (
+                      <span className="text-xs text-gray-600 italic">{msg.message}</span>
+                    ) : (
+                      <div className="flex flex-col">
+                        <div className="flex items-center gap-2">
+                          <span className={`text-xs font-bold ${
+                            msg.user_id === authUser?.id ? 'text-amber-400' : 'text-emerald-400'
+                          }`}>
+                            {msg.display_name}
+                            {msg.character_name && <span className="text-gray-500"> as {msg.character_name}</span>}
+                          </span>
+                          <span className="text-xs text-gray-700">
+                            {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                        <p className="text-sm text-gray-300">{msg.message}</p>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+              <div ref={collabChatEndRef} />
+            </div>
+
+            {/* Chat Input */}
+            <div className="p-4 border-t border-gray-800">
+              <form onSubmit={(e) => { e.preventDefault(); sendCollabChatMessage(); }} className="flex gap-2">
+                <input
+                  type="text"
+                  value={collabChatInput}
+                  onChange={(e) => setCollabChatInput(e.target.value)}
+                  placeholder="Type a message..."
+                  className="flex-1 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-500 focus:border-emerald-500 focus:outline-none"
+                />
+                <button
+                  type="submit"
+                  disabled={!collabChatInput.trim()}
+                  className="p-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </form>
             </div>
           </div>
         </div>
