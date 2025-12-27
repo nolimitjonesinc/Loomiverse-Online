@@ -4730,9 +4730,6 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
     setCollabError('');
 
     try {
-      const apiKey = openaiKey || storage.getApiKey('openai');
-      if (!apiKey) throw new Error('No API key configured');
-
       // Generate premise
       const premiseResp = await fetch('/api/openai', {
         method: 'POST',
