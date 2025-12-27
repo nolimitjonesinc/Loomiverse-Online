@@ -4952,7 +4952,7 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
   // Load story from storage
   const loadStory = (id) => {
     const data = storage.loadStory(id);
-    if (data) {
+    if (data && data.bible) {
       // Reconstruct StoryBible from saved data
       const loadedBible = new StoryBible(
         data.bible.title,
@@ -4964,11 +4964,44 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
       Object.assign(loadedBible, data.bible);
 
       setStoryBible(loadedBible);
-      setChapterData(data.currentChapter);
+
+      // Handle missing chapter data - reconstruct from bible if possible
+      let chapter = data.currentChapter;
+      if (!chapter) {
+        // Try to reconstruct from chapter summaries in bible
+        const chapterNum = loadedBible.currentChapter || 1;
+        const summary = loadedBible.chapterSummaries?.[chapterNum];
+        if (summary) {
+          chapter = {
+            number: chapterNum,
+            title: summary.title || `Chapter ${chapterNum}`,
+            content: summary.summary || 'Continue your adventure...',
+            choices: [
+              { id: 'continue', text: 'Continue the story' }
+            ]
+          };
+        } else {
+          // Minimal fallback chapter
+          chapter = {
+            number: chapterNum,
+            title: `Chapter ${chapterNum}`,
+            content: 'Your story awaits. Generate the next chapter to continue your adventure.',
+            choices: [
+              { id: 'continue', text: 'Generate next chapter' }
+            ]
+          };
+        }
+        console.warn('[Loomiverse] Reconstructed missing chapter data for story:', id);
+      }
+
+      setChapterData(chapter);
       setChoiceMade(false);
       setStoryBookmarks(storage.getBookmarks(id));
       setShowBookmarks(false);
       setScreen('reading');
+    } else {
+      console.error('[Loomiverse] Failed to load story:', id);
+      alert('Unable to load this story. The data may be corrupted.');
     }
   };
 
