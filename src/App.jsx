@@ -3871,7 +3871,7 @@ Output ONLY valid JSON in this format:
 
 STORY: "${storyBible.title}"
 CURRENT SCENE: ${chapterData.title}
-${chapterData.content.slice(-500)}
+${(chapterData.content || '').slice(-500)}
 
 THE READER'S ACTION: "${userResponse}"
 
@@ -3939,7 +3939,7 @@ Write a brief 2-3 sentence narrative response to what the reader did/said. Keep 
 STORY: "${storyBible.title}"
 CURRENT SCENE: ${chapterData.title}
 RECENT STORY:
-${chapterData.content.slice(-800)}
+${(chapterData.content || '').slice(-800)}
 
 THE READER'S NARRATIVE DIRECTION: "${narratorDirection}"
 
@@ -4968,7 +4968,7 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
 
       // Handle missing chapter data - reconstruct from bible if possible
       let chapter = data.currentChapter;
-      if (!chapter) {
+      if (!chapter || !chapter.content) {
         // Try to reconstruct from chapter summaries in bible
         const chapterNum = loadedBible.currentChapter || 1;
         const summary = loadedBible.chapterSummaries?.[chapterNum];
@@ -8367,7 +8367,7 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
             </div>
 
             <div className="prose prose-invert prose-lg max-w-none">
-              {chapterData.content.split('\n\n').map((para, i) => (
+              {(chapterData.content || '').split('\n\n').map((para, i) => (
                 <p
                   key={i}
                   className={`mb-6 text-gray-300 leading-relaxed ${
