@@ -8358,7 +8358,7 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
                 </span>
                 <div className="w-16 h-px bg-gradient-to-l from-transparent via-amber-500/50 to-transparent" />
               </div>
-              <h2 className="text-4xl font-bold text-white">{chapterData.title}</h2>
+              <h2 className="text-4xl font-bold text-white">{chapterData.title?.replace(/^Chapter\s*\d+\s*[:.-]\s*/i, '')}</h2>
               <div className="mt-4 flex items-center justify-center gap-2 text-gray-600 text-xs">
                 <span>{Math.max(1, Math.round(chapterData.content?.split(/\s+/).length / 200 || 7))} min read</span>
                 <span>•</span>
