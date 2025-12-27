@@ -17,7 +17,23 @@ import {
   createAIProvider,
   createIntegratedEngine,
   TENSION_LEVELS,
-  EMOTIONAL_BEATS
+  EMOTIONAL_BEATS,
+  // Psychological systems for Classic Mode
+  createEvolutionTracker,
+  recordGrowthMoment,
+  getEvolutionContext,
+  GROWTH_DIMENSIONS,
+  CATALYSTS,
+  createMemorySystem,
+  storeMemory,
+  createMemory,
+  getMemoryContext,
+  MEMORY_TYPES,
+  SALIENCE,
+  createAttachmentEngine,
+  recordInteraction,
+  getBondSummary,
+  BOND_TYPES
 } from './lib/liveAdventure/index.js';
 import { AdventureScreen } from './components/LiveAdventure/index.js';
 import AdminPanel from './components/AdminPanel.jsx';
@@ -2430,6 +2446,12 @@ export default function Loomiverse() {
   const [chapterData, setChapterData] = useState(null);
   const [savedStories, setSavedStories] = useState([]);
   const [choiceMade, setChoiceMade] = useState(false);
+
+  // Classic Mode Psychological Tracking
+  // These systems track character evolution, memories, and relationships during standard story reading
+  const [classicModeEvolution, setClassicModeEvolution] = useState({}); // { characterName: evolutionTracker }
+  const [classicModeMemories, setClassicModeMemories] = useState(null); // MemorySystem instance
+  const [classicModeAttachment, setClassicModeAttachment] = useState({}); // { characterName: attachmentEngine }
   
   // UI state
   const [loading, setLoading] = useState(false);
@@ -3742,6 +3764,235 @@ This is casual chat, not an interview. Be real.`;
     }
   };
 
+  // ============================================
+  // CLASSIC MODE PSYCHOLOGICAL TRACKING
+  // ============================================
+
+  // Initialize psychological systems for a story
+  const initializeClassicModePsychology = (bible) => {
+    // Create memory system
+    const memories = createMemorySystem();
+    setClassicModeMemories(memories);
+
+    // Create evolution trackers and attachment engines for each character
+    const evolutionTrackers = {};
+    const attachmentEngines = {};
+
+    const characters = Object.values(bible.characters || {});
+    characters.forEach(character => {
+      // Create evolution tracker based on character psychology
+      evolutionTrackers[character.name] = createEvolutionTracker(character);
+      // Create attachment engine for reader-character bond
+      attachmentEngines[character.name] = createAttachmentEngine('reader', character.name);
+    });
+
+    setClassicModeEvolution(evolutionTrackers);
+    setClassicModeAttachment(attachmentEngines);
+
+    console.log('[ClassicMode] Psychological systems initialized for', characters.length, 'characters');
+    return { memories, evolutionTrackers, attachmentEngines };
+  };
+
+  // Analyze chapter content and update psychological systems
+  const analyzeChapterPsychology = (chapter, bible) => {
+    if (!classicModeMemories) return;
+
+    const content = chapter.content || '';
+    const characters = Object.values(bible.characters || {});
+
+    // Detect emotional moments in the chapter
+    const emotionalPatterns = {
+      vulnerability: /confess|admit|reveal|tears|crying|afraid|scared|trust you|open up/i,
+      courage: /brave|courage|stand up|face|confront|despite fear|push through/i,
+      kindness: /help|save|comfort|gentle|kind|care for|protect/i,
+      conflict: /argue|fight|angry|betray|hurt|storm off|slam/i,
+      connection: /laugh together|shared moment|understood|bond|closer|embrace|hold hands/i,
+      loss: /lost|gone|died|farewell|goodbye|never see again/i,
+      triumph: /succeed|victory|overcome|finally|achieved|won/i
+    };
+
+    // Check each pattern and record growth moments
+    Object.entries(emotionalPatterns).forEach(([emotion, pattern]) => {
+      if (pattern.test(content)) {
+        // Determine which characters are affected
+        characters.forEach(character => {
+          if (content.toLowerCase().includes(character.name.toLowerCase())) {
+            const tracker = classicModeEvolution[character.name];
+            if (tracker) {
+              // Map emotion to growth dimension and catalyst
+              const growthMap = {
+                vulnerability: { dimension: GROWTH_DIMENSIONS.VULNERABILITY, catalyst: CATALYSTS.VULNERABLE_MOMENT, magnitude: 6 },
+                courage: { dimension: GROWTH_DIMENSIONS.COURAGE, catalyst: CATALYSTS.ACT_OF_COURAGE, magnitude: 5 },
+                kindness: { dimension: GROWTH_DIMENSIONS.TRUST, catalyst: CATALYSTS.RECEIVED_KINDNESS, magnitude: 4 },
+                conflict: { dimension: GROWTH_DIMENSIONS.TRUST, catalyst: CATALYSTS.BETRAYAL_EXPERIENCED, magnitude: -5 },
+                connection: { dimension: GROWTH_DIMENSIONS.WILLINGNESS_TO_CONNECT, catalyst: CATALYSTS.CONNECTION_MADE, magnitude: 6 },
+                loss: { dimension: GROWTH_DIMENSIONS.HOPE, catalyst: CATALYSTS.LOSS, magnitude: -4 },
+                triumph: { dimension: GROWTH_DIMENSIONS.SELF_WORTH, catalyst: CATALYSTS.SUCCESS_EXPERIENCE, magnitude: 7 }
+              };
+
+              const growth = growthMap[emotion];
+              if (growth) {
+                recordGrowthMoment(tracker, {
+                  dimension: growth.dimension,
+                  catalyst: growth.catalyst,
+                  magnitude: growth.magnitude,
+                  context: `Chapter ${bible.currentChapter}: ${emotion} moment`,
+                  witnessed: true
+                });
+              }
+            }
+          }
+        });
+
+        // Store as memory
+        storeMemory(classicModeMemories, 'reader', createMemory({
+          type: emotion === 'vulnerability' ? MEMORY_TYPES.CONFESSION :
+                emotion === 'connection' ? MEMORY_TYPES.EMOTIONAL_PEAK :
+                emotion === 'loss' ? MEMORY_TYPES.EVENT :
+                MEMORY_TYPES.EVENT,
+          content: `Chapter ${bible.currentChapter}: ${emotion} moment detected`,
+          salience: emotion === 'vulnerability' || emotion === 'loss' ? SALIENCE.SIGNIFICANT : SALIENCE.NOTABLE,
+          participants: characters.filter(c => content.toLowerCase().includes(c.name.toLowerCase())).map(c => c.name),
+          context: { chapter: bible.currentChapter, emotion }
+        }));
+      }
+    });
+
+    // Update evolution trackers state
+    setClassicModeEvolution({ ...classicModeEvolution });
+
+    console.log('[ClassicMode] Chapter analyzed for psychological content');
+  };
+
+  // Update relationships based on reader choice
+  const updatePsychologyFromChoice = (choiceId, choiceText, bible) => {
+    if (!classicModeAttachment || Object.keys(classicModeAttachment).length === 0) return;
+
+    // Analyze choice text to determine interaction type
+    const choiceLower = choiceText.toLowerCase();
+    let interactionType = 'neutral';
+    let affectedCharacters = [];
+
+    // Detect interaction type from choice text
+    if (/help|save|protect|comfort|support/i.test(choiceLower)) {
+      interactionType = 'help_given';
+    } else if (/trust|confide|reveal|honest|tell .* truth/i.test(choiceLower)) {
+      interactionType = 'vulnerability_shared';
+    } else if (/forgive|understand|accept/i.test(choiceLower)) {
+      interactionType = 'forgiveness';
+    } else if (/confront|challenge|demand|accuse/i.test(choiceLower)) {
+      interactionType = 'conflict';
+    } else if (/leave|abandon|ignore|refuse/i.test(choiceLower)) {
+      interactionType = 'negative_interaction';
+    } else if (/agree|join|together|with you/i.test(choiceLower)) {
+      interactionType = 'positive_interaction';
+    }
+
+    // Find which characters are mentioned or affected
+    const characters = Object.values(bible.characters || {});
+    characters.forEach(character => {
+      if (choiceLower.includes(character.name.toLowerCase()) ||
+          (bible.protagonist && character.name === bible.protagonist.name)) {
+        affectedCharacters.push(character.name);
+      }
+    });
+
+    // If no specific character mentioned, affect the protagonist's relationships
+    if (affectedCharacters.length === 0 && characters.length > 0) {
+      affectedCharacters = [characters[0].name];
+    }
+
+    // Update attachment for affected characters
+    affectedCharacters.forEach(charName => {
+      const attachment = classicModeAttachment[charName];
+      if (attachment) {
+        recordInteraction(attachment, charName, {
+          type: interactionType,
+          context: choiceText
+        });
+
+        // Also record as memory
+        if (classicModeMemories) {
+          storeMemory(classicModeMemories, charName, createMemory({
+            type: MEMORY_TYPES.CHOICE,
+            content: `Reader chose: ${choiceText}`,
+            salience: interactionType === 'vulnerability_shared' ? SALIENCE.SIGNIFICANT : SALIENCE.NOTABLE,
+            participants: ['reader', charName],
+            context: { chapter: bible.currentChapter, choiceId, interactionType }
+          }));
+        }
+      }
+    });
+
+    // Update evolution based on choice
+    if (interactionType === 'help_given' || interactionType === 'vulnerability_shared') {
+      affectedCharacters.forEach(charName => {
+        const tracker = classicModeEvolution[charName];
+        if (tracker) {
+          recordGrowthMoment(tracker, {
+            dimension: interactionType === 'help_given' ? GROWTH_DIMENSIONS.TRUST : GROWTH_DIMENSIONS.VULNERABILITY,
+            catalyst: interactionType === 'help_given' ? CATALYSTS.TRUST_HONORED : CATALYSTS.VULNERABLE_MOMENT,
+            magnitude: 5,
+            context: `Reader choice: ${choiceText}`,
+            witnessed: true
+          });
+        }
+      });
+      setClassicModeEvolution({ ...classicModeEvolution });
+    }
+
+    setClassicModeAttachment({ ...classicModeAttachment });
+    console.log('[ClassicMode] Psychology updated from choice:', interactionType, 'affecting:', affectedCharacters);
+  };
+
+  // Build psychological context for chapter generation
+  const buildPsychologicalContext = (bible) => {
+    if (!classicModeEvolution || Object.keys(classicModeEvolution).length === 0) {
+      return '';
+    }
+
+    let context = '\n\nCHARACTER PSYCHOLOGICAL STATE:\n';
+
+    Object.entries(classicModeEvolution).forEach(([charName, tracker]) => {
+      const evolution = getEvolutionContext(tracker);
+      const attachment = classicModeAttachment[charName];
+      const bond = attachment ? getBondSummary(attachment) : null;
+
+      context += `\n${charName}:\n`;
+
+      // Evolution state
+      if (evolution.activeArc) {
+        context += `- Currently on a ${evolution.activeArc} arc\n`;
+      }
+      if (evolution.significantStates && evolution.significantStates.length > 0) {
+        evolution.significantStates.forEach(state => {
+          context += `- ${state.dimension}: ${state.description} (${state.direction})\n`;
+        });
+      }
+
+      // Bond with reader
+      if (bond) {
+        context += `- Reader relationship: ${bond.phase || 'developing'}\n`;
+        if (bond.overallBondStrength) {
+          context += `- Bond strength: ${bond.overallBondStrength}/100\n`;
+        }
+      }
+    });
+
+    // Add relevant memories
+    if (classicModeMemories) {
+      const readerMemories = getMemoryContext(classicModeMemories, 'reader', 3);
+      if (readerMemories.length > 0) {
+        context += '\nKEY MEMORIES:\n';
+        readerMemories.forEach(mem => {
+          context += `- ${mem.what} (${mem.importance})\n`;
+        });
+      }
+    }
+
+    return context;
+  };
+
   // Generate chapter via AI
   const generateChapter = async (chapterNum) => {
     const providers = primaryProvider === 'openai'
@@ -3786,7 +4037,12 @@ Output ONLY valid JSON in this format:
 }`;
 
     const context = storyBible.buildContextInjection(chapterNum);
-    const userPrompt = `${context}\n\nWrite Chapter ${chapterNum}. Return ONLY valid JSON.`;
+
+    // Add psychological context for chapters after the first
+    // This includes character evolution states, relationship bonds, and key memories
+    const psychContext = chapterNum > 1 ? buildPsychologicalContext(storyBible) : '';
+
+    const userPrompt = `${context}${psychContext}\n\nWrite Chapter ${chapterNum}. Return ONLY valid JSON.`;
 
     for (const providerKey of providers) {
       const provider = AI_PROVIDERS[providerKey];
@@ -3831,9 +4087,12 @@ Output ONLY valid JSON in this format:
     const bible = storyBible.clone();
     bible.currentChapter = 1;
 
+    // Initialize psychological tracking systems for Classic Mode
+    initializeClassicModePsychology(bible);
+
     try {
       const chapter = await generateChapter(1);
-      
+
       bible.addChapterSummary(1, chapter.title, chapter.summary);
       if (chapter.newCharacters) {
         chapter.newCharacters.forEach(c => bible.addCharacter(c.name, c.role, c.traits || []));
@@ -3846,6 +4105,9 @@ Output ONLY valid JSON in this format:
       setChapterData(chapter);
       setChoiceMade(false);
       setScreen('reading');
+
+      // Analyze chapter for emotional content and update character psychology
+      analyzeChapterPsychology(chapter, bible);
 
       // AUTO-SAVE: Save immediately after first chapter is generated
       autoSaveStory(bible, chapter);
@@ -3871,6 +4133,9 @@ Output ONLY valid JSON in this format:
     bible.recordChoice(bible.currentChapter, choiceId, choiceText);
     setStoryBible(bible);
     setChoiceMade(true);
+
+    // Update character psychology based on the choice made
+    updatePsychologyFromChoice(choiceId, choiceText, bible);
 
     // AUTO-SAVE: Save after player makes a choice
     if (chapterData) {
@@ -4027,6 +4292,18 @@ IMPORTANT:
     bible.currentChapter++;
 
     if (bible.currentChapter > bible.totalChapters) {
+      // Log final psychology stats
+      console.log('[ClassicMode] Story completed. Final character states:', {
+        evolution: Object.entries(classicModeEvolution).map(([name, tracker]) => ({
+          name,
+          ...getEvolutionContext(tracker)
+        })),
+        bonds: Object.entries(classicModeAttachment).map(([name, attachment]) => ({
+          name,
+          ...getBondSummary(attachment)
+        }))
+      });
+
       // AUTO-SAVE: Save completed story before showing completion screen
       autoSaveStory();
 
@@ -4044,7 +4321,7 @@ IMPORTANT:
 
     try {
       const chapter = await generateChapter(bible.currentChapter);
-      
+
       bible.addChapterSummary(bible.currentChapter, chapter.title, chapter.summary);
       if (chapter.newWorldFacts) {
         chapter.newWorldFacts.forEach(f => bible.addWorldFact(f.fact, f.category, f.importance));
@@ -4053,6 +4330,9 @@ IMPORTANT:
       setStoryBible(bible);
       setChapterData(chapter);
       setChoiceMade(false);
+
+      // Analyze chapter for emotional content and update character psychology
+      analyzeChapterPsychology(chapter, bible);
 
       // AUTO-SAVE: Save after each chapter is generated
       autoSaveStory(bible, chapter);
