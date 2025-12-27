@@ -2400,7 +2400,9 @@ export default function Loomiverse() {
   const [generatingCharacter, setGeneratingCharacter] = useState(false);
   const [simulatingChildhood, setSimulatingChildhood] = useState(false);
   const [simulationProgress, setSimulationProgress] = useState(0);
-  
+  const [characterEditMode, setCharacterEditMode] = useState(false);
+  const [selectedCharacterIds, setSelectedCharacterIds] = useState(new Set());
+
   // Story state
   const [selectedGenre, setSelectedGenre] = useState(null);
   const [narratorCharacter, setNarratorCharacter] = useState(null); // Character used as story narrator
@@ -6363,7 +6365,10 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
                 </div>
                 <h3 className="text-xl font-bold mb-2">Your Library</h3>
                 <p className="text-sm opacity-50">
-                  {savedStories.length} stor{savedStories.length !== 1 ? 'ies' : 'y'} • {collections.length} collections
+                  {savedStories.length === 0
+                    ? 'No stories yet'
+                    : `${savedStories.length} stor${savedStories.length !== 1 ? 'ies' : 'y'}`
+                  }
                 </p>
               </button>
             </div>
@@ -8892,6 +8897,77 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
               <p className="text-gray-500">Choose a character to start chatting</p>
             </div>
 
+            {/* Edit Mode Toolbar */}
+            {characters.length > 0 && (
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  {characterEditMode ? (
+                    <>
+                      <button
+                        onClick={() => {
+                          if (selectedCharacterIds.size === characters.length) {
+                            setSelectedCharacterIds(new Set());
+                          } else {
+                            setSelectedCharacterIds(new Set(characters.map(c => c.id)));
+                          }
+                        }}
+                        className="px-3 py-1.5 text-sm bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg"
+                      >
+                        {selectedCharacterIds.size === characters.length ? 'Deselect All' : 'Select All'}
+                      </button>
+                      {selectedCharacterIds.size > 0 && (
+                        <span className="text-sm text-gray-400">
+                          {selectedCharacterIds.size} selected
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <span className="text-sm text-gray-500">{characters.length} character{characters.length !== 1 ? 's' : ''}</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {characterEditMode && selectedCharacterIds.size > 0 && (
+                    <button
+                      onClick={() => {
+                        setConfirmModal({
+                          title: 'Delete Characters',
+                          message: `Are you sure you want to delete ${selectedCharacterIds.size} character${selectedCharacterIds.size > 1 ? 's' : ''}? This cannot be undone.`,
+                          confirmText: 'Delete',
+                          confirmStyle: 'danger',
+                          onConfirm: () => {
+                            selectedCharacterIds.forEach(id => {
+                              storage.deleteCharacter(id);
+                            });
+                            setCharacters(storage.getCharacters());
+                            setSelectedCharacterIds(new Set());
+                            setCharacterEditMode(false);
+                            setConfirmModal(null);
+                          }
+                        });
+                      }}
+                      className="px-3 py-1.5 text-sm bg-red-600 hover:bg-red-500 text-white rounded-lg flex items-center gap-1"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Delete
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      setCharacterEditMode(!characterEditMode);
+                      setSelectedCharacterIds(new Set());
+                    }}
+                    className={`px-3 py-1.5 text-sm rounded-lg ${
+                      characterEditMode
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-gray-800 hover:bg-gray-700 text-gray-300'
+                    }`}
+                  >
+                    {characterEditMode ? 'Done' : 'Edit'}
+                  </button>
+                </div>
+              </div>
+            )}
+
             {characters.length === 0 ? (
               <div className="text-center py-12">
                 <User className="w-16 h-16 text-gray-700 mx-auto mb-4" />
@@ -8916,8 +8992,36 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
                 {characters.map(char => (
                   <div
                     key={char.id}
-                    className="w-full p-4 bg-gray-900/50 border border-gray-800 hover:border-purple-500/50 rounded-xl flex items-center gap-4 transition-all group"
+                    onClick={characterEditMode ? () => {
+                      const newSelected = new Set(selectedCharacterIds);
+                      if (newSelected.has(char.id)) {
+                        newSelected.delete(char.id);
+                      } else {
+                        newSelected.add(char.id);
+                      }
+                      setSelectedCharacterIds(newSelected);
+                    } : undefined}
+                    className={`w-full p-4 bg-gray-900/50 border rounded-xl flex items-center gap-4 transition-all group ${
+                      characterEditMode
+                        ? selectedCharacterIds.has(char.id)
+                          ? 'border-purple-500 bg-purple-500/10 cursor-pointer'
+                          : 'border-gray-800 hover:border-gray-600 cursor-pointer'
+                        : 'border-gray-800 hover:border-purple-500/50'
+                    }`}
                   >
+                    {/* Checkbox in edit mode */}
+                    {characterEditMode && (
+                      <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+                        selectedCharacterIds.has(char.id)
+                          ? 'bg-purple-500 border-purple-500'
+                          : 'border-gray-600'
+                      }`}>
+                        {selectedCharacterIds.has(char.id) && (
+                          <Check className="w-3.5 h-3.5 text-white" />
+                        )}
+                      </div>
+                    )}
+
                     {/* Portrait or placeholder */}
                     <div className="relative">
                       {char.portraitUrl ? (
@@ -8931,8 +9035,8 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
                           <User className="w-7 h-7 text-purple-400" />
                         </div>
                       )}
-                      {/* Generate portrait button */}
-                      {!char.portraitUrl && (
+                      {/* Generate portrait button - hide in edit mode */}
+                      {!char.portraitUrl && !characterEditMode && (
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -8951,26 +9055,25 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
                       )}
                     </div>
 
-                    {/* Character info - clickable to chat */}
-                    <button
-                      onClick={() => startCharacterChat(char)}
-                      className="flex-1 min-w-0 text-left"
-                    >
+                    {/* Character info - clickable to chat (not in edit mode) */}
+                    <div className="flex-1 min-w-0 text-left">
                       <h3 className="font-bold text-white truncate">{char.name || 'Unknown'}</h3>
                       <p className="text-sm text-gray-500 truncate">
                         {char.role || 'Character'}
                         {char.originStoryTitle && <span className="text-purple-400"> • {char.originStoryTitle}</span>}
                       </p>
-                    </button>
+                    </div>
 
-                    {/* Chat button */}
-                    <button
-                      onClick={() => startCharacterChat(char)}
-                      className="flex items-center gap-2 text-purple-400 hover:text-purple-300 transition-colors"
-                    >
-                      <span className="text-sm">Chat</span>
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
+                    {/* Chat button - hide in edit mode */}
+                    {!characterEditMode && (
+                      <button
+                        onClick={() => startCharacterChat(char)}
+                        className="flex items-center gap-2 text-purple-400 hover:text-purple-300 transition-colors"
+                      >
+                        <span className="text-sm">Chat</span>
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
