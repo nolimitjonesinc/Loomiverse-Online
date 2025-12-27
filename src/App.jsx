@@ -4881,7 +4881,7 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
       const aiProvider = createAIProvider({
         openaiKey: openaiKey || storage.getApiKey('openai'),
         anthropicKey: anthropicKey || storage.getApiKey('anthropic'),
-        preferredProvider: aiProvider === 'anthropic' ? 'anthropic' : 'openai'
+        preferredProvider: primaryProvider === 'anthropic' ? 'anthropic' : 'openai'
       });
 
       // Create the engine
