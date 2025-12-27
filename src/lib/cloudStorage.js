@@ -344,13 +344,20 @@ class CloudStorageManager {
     }
 
     try {
-      const { error } = await supabase
+      // Delete by local_story_id column
+      await supabase
         .from('loom_characters')
         .delete()
         .eq('user_id', this.user.id)
         .eq('local_story_id', storyId);
 
-      if (error) throw error;
+      // ALSO delete by originStoryId in the data JSON (catches ones saved with null local_story_id)
+      await supabase
+        .from('loom_characters')
+        .delete()
+        .eq('user_id', this.user.id)
+        .filter('data->>originStoryId', 'eq', storyId);
+
       console.log('[Cloud] Characters deleted for story:', storyId);
       return true;
     } catch (error) {

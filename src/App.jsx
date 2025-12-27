@@ -2852,49 +2852,21 @@ export default function Loomiverse() {
     setAuthUser(null);
   };
 
-  // Delete story with character prompt
+  // Delete story - ALWAYS deletes characters too. Simple.
   const handleDeleteStory = (storyId, storyTitle) => {
-    const characterCount = storage.getCharacterCountForStory(storyId);
-
-    if (characterCount > 0) {
-      // Story has characters - show special confirmation with options
-      setConfirmModal({
-        title: 'Delete Story',
-        message: `Are you sure you want to delete "${storyTitle}"?\n\nThis story has ${characterCount} character${characterCount > 1 ? 's' : ''} associated with it.`,
-        confirmText: 'Delete Story Only',
-        confirmStyle: 'danger',
-        onConfirm: () => {
-          // Delete story but keep characters
-          storage.deleteStory(storyId);
-          setSavedStories(storage.listStories());
-          setConfirmModal(null);
-        },
-        // Add extra action for deleting with characters
-        extraAction: {
-          text: 'Delete Story & Characters',
-          style: 'danger',
-          onClick: () => {
-            storage.deleteCharactersForStory(storyId);
-            storage.deleteStory(storyId);
-            setSavedStories(storage.listStories());
-            setCharacters(storage.getCharacters());
-            setConfirmModal(null);
-          }
-        }
-      });
-    } else {
-      // No characters - normal confirmation
-      setConfirmModal({
-        title: 'Delete Story',
-        message: `Are you sure you want to delete "${storyTitle}"? This cannot be undone.`,
-        confirmText: 'Delete',
-        confirmStyle: 'danger',
-        onConfirm: () => {
-          storage.deleteStory(storyId);
-          setSavedStories(storage.listStories());
-        }
-      });
-    }
+    setConfirmModal({
+      title: 'Delete Story',
+      message: `Delete "${storyTitle}" and all its characters? This cannot be undone.`,
+      confirmText: 'Delete',
+      confirmStyle: 'danger',
+      onConfirm: () => {
+        storage.deleteCharactersForStory(storyId);
+        storage.deleteStory(storyId);
+        setSavedStories(storage.listStories());
+        setCharacters(storage.getCharacters());
+        setConfirmModal(null);
+      }
+    });
   };
 
   // Click outside to close menus
@@ -5194,63 +5166,30 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
     }
   };
 
-  // Edit Mode: Bulk delete selected stories
+  // Edit Mode: Bulk delete selected stories - ALWAYS deletes characters too
   const bulkDeleteStories = () => {
     if (selectedStories.size === 0) return;
-
-    // Count total characters across all selected stories
-    let totalCharacters = 0;
-    selectedStories.forEach(id => {
-      totalCharacters += storage.getCharacterCountForStory(id);
-    });
 
     const storyCount = selectedStories.size;
     const storyText = storyCount === 1 ? 'story' : 'stories';
 
-    if (totalCharacters > 0) {
-      setConfirmModal({
-        title: 'Delete Selected Stories',
-        message: `Delete ${storyCount} ${storyText}?\n\nThese stories have ${totalCharacters} character${totalCharacters > 1 ? 's' : ''} in total.`,
-        confirmText: 'Delete Stories Only',
-        confirmStyle: 'danger',
-        onConfirm: () => {
-          selectedStories.forEach(id => storage.deleteStory(id));
-          setSavedStories(storage.listStories());
-          setSelectedStories(new Set());
-          setEditMode(false);
-          setConfirmModal(null);
-        },
-        extraAction: {
-          text: 'Delete Stories & Characters',
-          style: 'danger',
-          onClick: () => {
-            selectedStories.forEach(id => {
-              storage.deleteCharactersForStory(id);
-              storage.deleteStory(id);
-            });
-            setSavedStories(storage.listStories());
-            setCharacters(storage.getCharacters());
-            setSelectedStories(new Set());
-            setEditMode(false);
-            setConfirmModal(null);
-          }
-        }
-      });
-    } else {
-      setConfirmModal({
-        title: 'Delete Selected Stories',
-        message: `Are you sure you want to delete ${storyCount} ${storyText}? This cannot be undone.`,
-        confirmText: 'Delete All',
-        confirmStyle: 'danger',
-        onConfirm: () => {
-          selectedStories.forEach(id => storage.deleteStory(id));
-          setSavedStories(storage.listStories());
-          setSelectedStories(new Set());
-          setEditMode(false);
-          setConfirmModal(null);
-        }
-      });
-    }
+    setConfirmModal({
+      title: 'Delete Selected Stories',
+      message: `Delete ${storyCount} ${storyText} and all their characters? This cannot be undone.`,
+      confirmText: 'Delete',
+      confirmStyle: 'danger',
+      onConfirm: () => {
+        selectedStories.forEach(id => {
+          storage.deleteCharactersForStory(id);
+          storage.deleteStory(id);
+        });
+        setSavedStories(storage.listStories());
+        setCharacters(storage.getCharacters());
+        setSelectedStories(new Set());
+        setEditMode(false);
+        setConfirmModal(null);
+      }
+    });
   };
 
   // Edit Mode: Bulk archive selected stories
@@ -7165,42 +7104,19 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
                               </button>
                               <button
                                 onClick={() => {
-                                  const characterCount = storage.getCharacterCountForStory(story.id);
-                                  if (characterCount > 0) {
-                                    setConfirmModal({
-                                      title: 'Delete Forever',
-                                      message: `Permanently delete "${story.title}"?\n\nThis story has ${characterCount} character${characterCount > 1 ? 's' : ''}.`,
-                                      confirmText: 'Delete Story Only',
-                                      confirmStyle: 'danger',
-                                      onConfirm: () => {
-                                        storage.deleteStory(story.id);
-                                        setArchivedStories(storage.listArchivedStories());
-                                        setConfirmModal(null);
-                                      },
-                                      extraAction: {
-                                        text: 'Delete Story & Characters',
-                                        style: 'danger',
-                                        onClick: () => {
-                                          storage.deleteCharactersForStory(story.id);
-                                          storage.deleteStory(story.id);
-                                          setArchivedStories(storage.listArchivedStories());
-                                          setCharacters(storage.getCharacters());
-                                          setConfirmModal(null);
-                                        }
-                                      }
-                                    });
-                                  } else {
-                                    setConfirmModal({
-                                      title: 'Delete Forever',
-                                      message: `Permanently delete "${story.title}"? This cannot be undone.`,
-                                      confirmText: 'Delete Forever',
-                                      confirmStyle: 'danger',
-                                      onConfirm: () => {
-                                        storage.deleteStory(story.id);
-                                        setArchivedStories(storage.listArchivedStories());
-                                      }
-                                    });
-                                  }
+                                  setConfirmModal({
+                                    title: 'Delete Forever',
+                                    message: `Permanently delete "${story.title}" and all its characters? This cannot be undone.`,
+                                    confirmText: 'Delete Forever',
+                                    confirmStyle: 'danger',
+                                    onConfirm: () => {
+                                      storage.deleteCharactersForStory(story.id);
+                                      storage.deleteStory(story.id);
+                                      setArchivedStories(storage.listArchivedStories());
+                                      setCharacters(storage.getCharacters());
+                                      setConfirmModal(null);
+                                    }
+                                  });
                                 }}
                                 className="px-4 py-2 border border-red-800 text-red-400 hover:bg-red-900 rounded text-sm"
                               >
