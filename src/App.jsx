@@ -1317,14 +1317,33 @@ class StorageManager {
   getCharacters(filter = 'all') {
     const d = localStorage.getItem(this.prefix + 'characters');
     let chars = d ? JSON.parse(d) : [];
-    
+
+    // Deduplicate by ID - one character, one ID
+    const charMap = new Map();
+    chars.forEach(c => {
+      if (c.id) {
+        // Keep the most recently saved version
+        const existing = charMap.get(c.id);
+        if (!existing || new Date(c.savedAt) > new Date(existing.savedAt)) {
+          charMap.set(c.id, c);
+        }
+      }
+    });
+    chars = Array.from(charMap.values());
+
+    // Save back if we removed duplicates
+    if (chars.length !== (d ? JSON.parse(d).length : 0)) {
+      localStorage.setItem(this.prefix + 'characters', JSON.stringify(chars));
+      console.log('[Storage] Cleaned up local character duplicates');
+    }
+
     // Apply filter
     if (filter === 'user') {
       chars = chars.filter(c => c.origin === 'user');
     } else if (filter === 'story') {
       chars = chars.filter(c => c.origin === 'story');
     }
-    
+
     return chars;
   }
 
@@ -2774,6 +2793,12 @@ export default function Loomiverse() {
 
       // Pull stories from cloud to local (for new device or after clearing data)
       try {
+        // First, clean up any duplicate characters in cloud
+        const dupsRemoved = await cloudStorage.deduplicateCharacters();
+        if (dupsRemoved > 0) {
+          console.log('[Auth] Cleaned up', dupsRemoved, 'duplicate characters');
+        }
+
         const syncResult = await cloudStorage.syncAllToLocal();
         // Refresh the stories list
         const refreshedStories = storage.listStories();

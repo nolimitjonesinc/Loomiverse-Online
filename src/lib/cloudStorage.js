@@ -206,6 +206,9 @@ class CloudStorageManager {
     }
 
     try {
+      // Use character's originStoryId as fallback - ensures same character always uses same key
+      const storyId = charData.storyId || charData.originStoryId || null;
+
       const { data, error } = await supabase
         .from('loom_characters')
         .upsert({
@@ -214,8 +217,8 @@ class CloudStorageManager {
           role: charData.role,
           data: charData,
           origin: charData.origin || 'story',
-          local_story_id: charData.storyId,
-          story_title: charData.storyTitle
+          local_story_id: storyId,
+          story_title: charData.storyTitle || charData.originStoryTitle
         }, {
           onConflict: 'user_id,name,local_story_id'
         })
@@ -246,6 +249,59 @@ class CloudStorageManager {
     } catch (error) {
       console.error('[Cloud] List characters failed:', error.message);
       return [];
+    }
+  }
+
+  /**
+   * Clean up duplicate characters in cloud - keeps newest version of each character ID
+   * @returns {Promise<number>} - Number of duplicates removed
+   */
+  async deduplicateCharacters() {
+    if (!this.canSync()) return 0;
+
+    try {
+      const allChars = await this.listCharacters();
+      if (allChars.length === 0) return 0;
+
+      // Group by character ID (from the data.id field)
+      const charById = new Map();
+      allChars.forEach(row => {
+        const charId = row.data?.id;
+        if (!charId) return;
+
+        if (!charById.has(charId)) {
+          charById.set(charId, []);
+        }
+        charById.get(charId).push(row);
+      });
+
+      // Find duplicates and delete older versions
+      let deletedCount = 0;
+      for (const [charId, rows] of charById) {
+        if (rows.length > 1) {
+          // Sort by created_at desc, keep the newest
+          rows.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+          const toDelete = rows.slice(1); // All except newest
+
+          for (const row of toDelete) {
+            const { error } = await supabase
+              .from('loom_characters')
+              .delete()
+              .eq('id', row.id);
+
+            if (!error) {
+              deletedCount++;
+              console.log('[Cloud] Deleted duplicate:', row.data?.name, 'id:', row.id);
+            }
+          }
+        }
+      }
+
+      console.log('[Cloud] Deduplication complete. Removed:', deletedCount);
+      return deletedCount;
+    } catch (error) {
+      console.error('[Cloud] Deduplication failed:', error.message);
+      return 0;
     }
   }
 
@@ -1633,11 +1689,18 @@ class CloudStorageManager {
       localStorage.setItem(localKey, JSON.stringify(localData));
     }
 
-    // Get cloud characters
+    // Get cloud characters - dedupe by ID to prevent duplicates
     const characters = await this.listCharacters();
     if (characters.length > 0) {
+      const charMap = new Map();
+      characters.forEach(c => {
+        if (c.data?.id) {
+          // Use character ID as key - same character = same ID, always
+          charMap.set(c.data.id, c.data);
+        }
+      });
       localStorage.setItem(prefix + 'characters', JSON.stringify(
-        characters.map(c => c.data)
+        Array.from(charMap.values())
       ));
     }
 
