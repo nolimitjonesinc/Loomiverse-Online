@@ -2460,6 +2460,7 @@ export default function Loomiverse() {
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const chatEndRef = useRef(null); // Ref for auto-scrolling chat
+  const biblePanelRef = useRef(null); // Ref for Story Bible panel scroll
 
   // Story archive
   const [showArchivedStories, setShowArchivedStories] = useState(false);
@@ -2611,6 +2612,13 @@ export default function Loomiverse() {
   const [liveAdventureOutputs, setLiveAdventureOutputs] = useState([]);
   const [liveAdventureEngine, setLiveAdventureEngine] = useState(null);
   const [liveAdventureGenerating, setLiveAdventureGenerating] = useState(false);
+
+  // Scroll Story Bible panel to top when opened
+  useEffect(() => {
+    if (showBible && biblePanelRef.current) {
+      biblePanelRef.current.scrollTop = 0;
+    }
+  }, [showBible]);
 
   // Initialize
   useEffect(() => {
@@ -8509,7 +8517,7 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
 
           {/* Story Bible Panel - Enhanced */}
           {showBible && (
-            <aside className="fixed top-0 right-0 h-full w-96 bg-gray-950 border-l border-gray-800 z-50 overflow-y-auto">
+            <aside ref={biblePanelRef} className="fixed top-0 right-0 h-full w-96 bg-gray-950 border-l border-gray-800 z-50 overflow-y-auto">
               <div className="p-5">
                 {/* Header */}
                 <div className="flex justify-between items-center mb-6 pb-3 border-b border-gray-800">
