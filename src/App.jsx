@@ -12,10 +12,10 @@ import { AI_AUTHORS, getAuthorById, getBestAuthorForGenre, buildAuthorPrompt, bu
 import { supabase } from './lib/supabase.js';
 import { cloudStorage } from './lib/cloudStorage.js';
 
-// Import Live Adventure Engine
+// Import Live Adventure Engine (Full Integrated Engine with Psychological Depth)
 import {
-  createLiveAdventureEngine,
   createAIProvider,
+  createIntegratedEngine,
   TENSION_LEVELS,
   EMOTIONAL_BEATS
 } from './lib/liveAdventure/index.js';
@@ -2612,6 +2612,30 @@ export default function Loomiverse() {
   const [liveAdventureOutputs, setLiveAdventureOutputs] = useState([]);
   const [liveAdventureEngine, setLiveAdventureEngine] = useState(null);
   const [liveAdventureGenerating, setLiveAdventureGenerating] = useState(false);
+  const [liveAdventureSaveKey, setLiveAdventureSaveKey] = useState(null); // For identifying saved adventures
+
+  // Save Live Adventure state to localStorage whenever it changes
+  useEffect(() => {
+    if (liveAdventureState && liveAdventureEngine && liveAdventureSaveKey) {
+      try {
+        const saveData = {
+          state: liveAdventureState,
+          outputs: liveAdventureOutputs,
+          engineState: liveAdventureEngine.serializeState?.() || null,
+          engineStats: liveAdventureEngine.getStats?.() || null,
+          savedAt: Date.now()
+        };
+        localStorage.setItem(`loomiverse_adventure_${liveAdventureSaveKey}`, JSON.stringify(saveData));
+        console.log('[LiveAdventure] State auto-saved', {
+          exchanges: saveData.engineStats?.exchangeCount,
+          memories: saveData.engineStats?.memorySystem?.totalMemories,
+          milestones: saveData.engineStats?.milestones?.length
+        });
+      } catch (e) {
+        console.warn('[LiveAdventure] Failed to save state:', e);
+      }
+    }
+  }, [liveAdventureState, liveAdventureOutputs, liveAdventureEngine, liveAdventureSaveKey]);
 
   // Scroll Story Bible panel to top when opened
   useEffect(() => {
@@ -4880,15 +4904,16 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
     try {
       setLiveAdventureGenerating(true);
 
-      // Create AI provider with available keys
-      const aiProvider = createAIProvider({
+      // Create the FULL integrated engine with all psychological depth systems
+      // This includes: CharacterEvolution, MemorySystem, AttachmentEngine,
+      // EmotionalResonance, TensionManager, HiddenThreads, EmergentMoments,
+      // CrossTalk, and BreathSystem
+      const engine = createIntegratedEngine({
         openaiKey: openaiKey || storage.getApiKey('openai'),
         anthropicKey: anthropicKey || storage.getApiKey('anthropic'),
-        preferredProvider: primaryProvider === 'anthropic' ? 'anthropic' : 'openai'
+        preferredProvider: primaryProvider === 'anthropic' ? 'anthropic' : 'openai',
+        genre: bible.genre || 'fantasy'
       });
-
-      // Create the engine
-      const engine = createLiveAdventureEngine(aiProvider);
       setLiveAdventureEngine(engine);
 
       // Start adventure with story bible
@@ -4898,9 +4923,20 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
       // Generate opening
       const { state: stateAfterOpening, outputs } = await engine.generateOpening(initialState);
 
+      // Set save key for persistence (use story title + timestamp)
+      const saveKey = `${bible.title?.replace(/[^a-zA-Z0-9]/g, '_') || 'adventure'}_${Date.now()}`;
+      setLiveAdventureSaveKey(saveKey);
+
       setLiveAdventureState(stateAfterOpening);
       setLiveAdventureOutputs(outputs);
       setScreen('live-adventure');
+
+      console.log('[LiveAdventure] Started with full integration:', {
+        genre: bible.genre,
+        characters: stateAfterOpening.presentCharacters?.map(c => c.name),
+        systems: ['CharacterEvolution', 'MemorySystem', 'AttachmentEngine', 'EmotionalResonance',
+                  'TensionManager', 'HiddenThreads', 'EmergentMoments', 'CrossTalk', 'BreathSystem']
+      });
 
     } catch (error) {
       console.error('[LiveAdventure] Start error:', error);
@@ -4948,10 +4984,28 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
 
   // Exit Live Adventure
   const exitLiveAdventure = () => {
-    // TODO: Save adventure state
+    // Log final adventure stats before clearing
+    if (liveAdventureEngine?.getStats) {
+      const stats = liveAdventureEngine.getStats();
+      console.log('[LiveAdventure] Adventure ended. Final stats:', {
+        exchanges: stats.exchangeCount,
+        breathMoments: stats.breathCount,
+        crossTalkMoments: stats.crossTalkCount,
+        emergentMoments: stats.emergentMomentsTriggered,
+        memories: stats.memorySystem?.totalMemories,
+        callbacksUsed: stats.memorySystem?.callbacksUsed,
+        milestones: stats.milestones,
+        characterBonds: stats.characterBonds
+      });
+    }
+
+    // State was auto-saved to localStorage via the useEffect
+    // It remains there for potential future "continue adventure" feature
+
     setLiveAdventureState(null);
     setLiveAdventureOutputs([]);
     setLiveAdventureEngine(null);
+    setLiveAdventureSaveKey(null);
     setScreen('landing');
   };
 
