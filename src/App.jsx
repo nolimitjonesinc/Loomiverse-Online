@@ -4724,7 +4724,8 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
    * Generate first chapter for collaborative story (host only)
    */
   const generateCollabFirstChapter = async () => {
-    if (!collabSession?.isHost || !collabSelectedGenre) return;
+    const genre = collabSelectedGenre || collabSession?.genre;
+    if (!collabSession?.isHost || !genre) return;
 
     setCollabGenerating(true);
     setCollabError('');
@@ -4736,7 +4737,7 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: 'gpt-4o-mini',
-          messages: [{ role: 'user', content: `Create a ${collabSelectedGenre} story premise with title, logline, 3 characters, and setting. Format as JSON: {"title":"...","logline":"...","characters":[{"name":"...","role":"..."}],"setting":"..."}` }],
+          messages: [{ role: 'user', content: `Create a ${genre} story premise with title, logline, 3 characters, and setting. Format as JSON: {"title":"...","logline":"...","characters":[{"name":"...","role":"..."}],"setting":"..."}` }],
           temperature: 0.9
         })
       });
@@ -4755,7 +4756,7 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: 'gpt-4o-mini',
-          messages: [{ role: 'user', content: `Write Chapter 1 of "${premise.title}", a ${collabSelectedGenre} story. Setting: ${premise.setting}. Write 300-400 words ending with a decision point, then 3 choices.\n\nFormat:\n[CHAPTER]\nText...\n\n[CHOICES]\nA) Choice 1\nB) Choice 2\nC) Choice 3` }],
+          messages: [{ role: 'user', content: `Write Chapter 1 of "${premise.title}", a ${genre} story. Setting: ${premise.setting}. Write 300-400 words ending with a decision point, then 3 choices.\n\nFormat:\n[CHAPTER]\nText...\n\n[CHOICES]\nA) Choice 1\nB) Choice 2\nC) Choice 3` }],
           temperature: 0.85
         })
       });
@@ -4777,8 +4778,8 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
       // Update session
       await supabase.from('loom_collab_sessions').update({
         title: premise.title || 'Collaborative Story',
-        genre: collabSelectedGenre,
-        bible: { ...premise, genre: collabSelectedGenre },
+        genre: genre,
+        bible: { ...premise, genre: genre },
         current_chapter_number: 1,
         current_chapter_content: content,
         current_choices: choices,
@@ -7464,13 +7465,36 @@ Requirements: Head and shoulders portrait, expressive eyes, detailed face, profe
               ) : (
                 <div className="text-center py-12">
                   <p className="text-gray-500 mb-4">The story awaits its first chapter...</p>
-                  {collabSession.host_id === authUser?.id && collabSession.genre && (
-                    <button
-                      onClick={generateCollabFirstChapter}
-                      className="px-6 py-3 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white font-bold rounded-xl transition-all"
-                    >
-                      Begin the Story
-                    </button>
+                  {collabSession.host_id === authUser?.id && (
+                    <div className="space-y-4">
+                      {/* Genre selector if no genre set */}
+                      {!collabSession.genre && !collabSelectedGenre && (
+                        <div className="max-w-md mx-auto">
+                          <p className="text-sm text-gray-400 mb-3">Choose a genre to begin:</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            {['Fantasy', 'Sci-Fi', 'Mystery', 'Romance', 'Horror', 'Thriller', 'Adventure', 'Comedy'].map(genre => (
+                              <button
+                                key={genre}
+                                onClick={() => setCollabSelectedGenre(genre)}
+                                className="p-2 rounded-lg text-sm font-medium bg-gray-800 text-gray-300 hover:bg-emerald-500 hover:text-white transition-all"
+                              >
+                                {genre}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {/* Show selected genre */}
+                      {(collabSession.genre || collabSelectedGenre) && (
+                        <button
+                          onClick={generateCollabFirstChapter}
+                          disabled={!collabSession.genre && !collabSelectedGenre}
+                          className="px-6 py-3 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white font-bold rounded-xl transition-all disabled:opacity-50"
+                        >
+                          Begin the Story
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
